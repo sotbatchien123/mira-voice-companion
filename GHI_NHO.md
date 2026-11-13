@@ -13,6 +13,8 @@
   - Đo thật: audio đầu 0,53–0,61s, chữ đầu 0,13–0,15s, 0 lỗ hổng khi phát, VRAM không đổi.
   - Miệng nhép trên VRM thật đã kiểm chứng (T013). Người dùng chưa nghe bản chạy trong app.
 - `uv run pytest` hiện là **46/46 pass**.
+- **Nghe giọng nói (spec 003):** faster-whisper `small` int8 CPU 12 luồng (`app/stt.py`, `POST /api/stt` nhận PCM 16kHz). Nút "Giữ để nói" (hoặc giữ Space khi ô nhập trống), nút "Rảnh tay" (VAD năng lượng, nhớ lựa chọn, mic mở sau cú bấm đầu), người dùng nói thì Mira im. Đo: 1,23–1,35s/câu, WER 6%, 0 câu bịa. **Chưa thử mic thật/giọng người thật/loa ngoài.**
+- **Git:** repo khởi tạo 2026-11-14, nhánh `main`. `.claude/settings.local.json`, `.env`, model, log không vào git.
 - **Đã kiểm chứng với qwen3:8b thật (spec 001):**
   - `uv run pytest` 20/20 pass (lúc đó).
   - `scripts/verify_live.py --warmup`: chữ đầu ≤ 2s ở 5/5 câu, 5/5 câu có tag, không lộ tag.
@@ -44,7 +46,7 @@ Kế hoạch đề xuất sau rà soát 2026-11-13 (chờ người dùng chốt)
      - Cần một đoạn mẫu giọng sạch 5–10s, có quyền dùng.
    - viXTTS: bỏ (cần fork cũ, không chạy RTX 5070).
 3. ~~Spec 002 – TTS~~ (xong phiên 11, còn T013 cần VRM). Khi sang F5-TTS (~1,4s/câu): chuyển tạo giọng sang worker nền để chữ không bị chặn (ghi trong `specs/002-voice-tts/plan.md`).
-4. **Spec 003 – STT:** faster-whisper `small`. Bấm-giữ-để-nói trước, rồi mới tới rảnh tay có VAD.
+4. ~~Spec 003 – STT~~ (xong phiên 16). Còn: người dùng thử mic thật. Ý cải thiện: nạp sẵn LLM khi mở trang (sau khi Ollama nghỉ, câu đầu chậm ~9s); Whisper GPU nếu muốn nhanh hơn (0,25s) nhưng VRAM chật.
 5. **Spec 004 – giọng riêng của Mira:** cần người dùng chốt nguồn giọng mẫu có quyền dùng.
    - Không dùng GPT-SoVITS (theo hiểu biết hiện tại, không hỗ trợ tiếng Việt).
    - Không dùng Common Voice (nhiều người nói; bản trên HF đã trống).
@@ -78,6 +80,21 @@ Nguồn: trang chủ và `/privacy` (bản sửa 2026-09-07). Họ không công 
 - Định tuyến nhiều nhà cung cấp cloud (trái local-first).
 
 ## Nhật ký phiên
+
+### 2026-11-14 (lần 16): git + spec 003 nghe giọng nói
+- `git init` (nhánh `main`), thêm `.claude/settings.local.json` vào `.gitignore`, dò bí mật trước khi commit: không có. Commit đầu `a858d35`.
+- Spec 003 (`specs/003-voice-input-stt/`): spec, plan, tasks, contract `stt.md`.
+- **Backend:**
+  - `faster-whisper`; `app/stt.py` (`SpeechRecognizer`, `WhisperSTT`, `keep_segment` lọc câu bịa theo số đo thật).
+  - `POST /api/stt`, health thêm `stt`, nạp sẵn Whisper lúc khởi động, log `kind: stt` (không lưu âm thanh/nội dung).
+- **Frontend:**
+  - `web/mic_worklet.js`, `web/mic.js` (AudioWorklet 16kHz, pre-roll 0,3s, hết câu sau 0,8s im, tối đa 30s).
+  - Nút mic/rảnh tay; ngắt lời Mira. Sửa `sendBtn` lấy theo id (form giờ có 2 nút).
+- **Test 47 → 60.**
+- **Kiểm chứng thật:**
+  - `verify_stt.py` 5/5 ≤ 2s, WER 6%, 0 câu bịa.
+  - Trình duyệt với `getUserMedia` giả (phát WAV): giữ để nói, rảnh tay, ngắt lời (dừng 4 mảnh), mic bị chặn → đều đúng.
+- **Chưa:** mic thật, giọng người thật, loa ngoài (tiếng vọng).
 
 ### 2026-11-14 (lần 15): nạp model VRM thật của Mira
 - Người dùng gửi `.vroid` (file dự án, không dùng được) → hướng dẫn xuất VRM. Texture chọn Shrinked để tiết kiệm VRAM.

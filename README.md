@@ -4,7 +4,8 @@
 
 Chatbot nhân vật anime 3D chạy trên trình duyệt: avatar VRM (Three.js + three-vrm), backend Python
 (FastAPI), biểu cảm đổi theo tag cảm xúc mà LLM chèn vào câu trả lời, nói thành tiếng bằng giọng tiếng Việt
-chạy CPU (VieNeu-TTS, giọng Mỹ Duyên) và nhép miệng theo âm lượng giọng.
+chạy CPU (VieNeu-TTS, giọng Mỹ Duyên) và nhép miệng theo âm lượng giọng. Nói chuyện được bằng mic
+(Whisper `small` chạy CPU): giữ để nói, hoặc rảnh tay và ngắt lời Mira khi đang nói.
 "Não" của nhân vật chọn được: **model local qua Ollama** (miễn phí, offline) hoặc **Claude API**.
 Không cần Node.js: thư viện frontend đã được vendor sẵn trong `web/vendor/`.
 
@@ -28,6 +29,7 @@ Sửa `.env` xong thì phải **tắt và chạy lại server**: `--reload` ch�
 
 Test:
 - `uv run pytest` (dùng LLM, Ollama và giọng giả, không gọi model thật).
+- `uv run python scripts/verify_stt.py` (nghe giọng nói với server thật: độ trễ, WER, im lặng/tiếng ồn).
 - `uv run python scripts/verify_live.py --warmup [--voice]` (test với model thật: đo độ trễ chữ và audio, tag cảm xúc,
   kiểm tra tag/emoji lộ ra hoặc bị đọc).
 - Mỗi lượt chat ghi một dòng vào `logs/turns.jsonl`: thời gian tới chữ đầu, audio đầu, tổng, model, lỗi. Không ghi nội dung.
@@ -47,7 +49,9 @@ Test:
 | `web/avatar.js` | Scene 3D, nạp VRM, idle (thở, chớp mắt, lắc đầu), biểu cảm, miệng theo âm lượng giọng (hoặc giả lập) |
 | `web/audio_player.js` | Phát giọng theo từng mảnh PCM (Web Audio), đo âm lượng cho nhép miệng, dừng khi gửi tin mới |
 | `web/chat_client.js` | Đọc SSE từ server |
-| `web/main.js` | Giao diện chat, nút bật/tắt giọng, lưu lịch sử vào localStorage |
+| `app/stt.py` | Hợp đồng `SpeechRecognizer` + `WhisperSTT` (lọc câu Whisper bịa khi chỉ có tiếng ồn) |
+| `web/mic.js`, `web/mic_worklet.js` | Ghi âm PCM 16kHz, giữ để nói, rảnh tay (VAD theo năng lượng) |
+| `web/main.js` | Giao diện chat, nút giọng/mic/rảnh tay, ngắt lời Mira, lưu lịch sử vào localStorage |
 | `web/vendor/` | three.js 0.187 + three-vrm 3.5.5 (MIT, xem `VERSIONS.txt`) |
 
 ### Giao thức SSE `/api/chat`
@@ -59,6 +63,8 @@ Request: `{messages, voice}` (`voice` mặc định `false`).
 `{type:"text_done", raw}` (chữ xong, giọng có thể còn đang tạo) · `{type:"tts_error", message}` (không kết thúc
 stream) · kết thúc bằng `{type:"done", raw}` (câu gốc còn tag, client lưu vào lịch sử) hoặc `{type:"error", message}`.
 Chi tiết: `specs/002-voice-tts/contracts/chat-sse.md`.
+
+`POST /api/stt`: body PCM 16-bit 16kHz mono → `{text, audio_ms, ms}` (xem `specs/003-voice-input-stt/contracts/stt.md`).
 
 ## Cấu hình (`.env`)
 
@@ -81,12 +87,18 @@ Chi tiết: `specs/002-voice-tts/contracts/chat-sse.md`.
   - `PIPER_VOICE`: đường dẫn file `.onnx`, mặc định `models/piper/vi_VN-vais1000-medium.onnx`.
   - `PIPER_LENGTH_SCALE`: `>1` đọc chậm hơn, `<1` nhanh hơn.
 
+- Nghe giọng nói:
+  - `STT_PROVIDER`: `whisper` (mặc định) hoặc `none`.
+  - `WHISPER_MODEL` (`small`), `WHISPER_DEVICE` (`cpu`; `cuda` cần cuBLAS/cuDNN + VRAM trống), `WHISPER_THREADS` (12).
+
 ## Giới hạn hiện tại
 
 - Giọng chưa đổi theo cảm xúc của câu (VieNeu có tag `[cười]`… đang thử nghiệm, chưa dùng). Giọng riêng là spec 004
   (VieNeu bắt chước được giọng từ mẫu 3–8s).
 - Câu trả lời dài giữ CPU bận tạo giọng (~0,45 giây cho mỗi giây audio).
-- Chưa có nghe giọng nói (STT), phải gõ chữ (spec 003).
+- Nghe giọng nói đã thử bằng giọng tổng hợp và mic giả lập; chưa đo với mic laptop và giọng người thật. Chế độ rảnh tay
+  dựa vào khử tiếng vọng của trình duyệt: dùng tai nghe sẽ chắc ăn hơn.
+- Sau khi Ollama nghỉ (`OLLAMA_KEEP_ALIVE`, mặc định 30 phút) câu đầu tiên chậm ~9s vì phải nạp lại model vào GPU.
 - Trí nhớ chỉ là 40 lượt chat gần nhất (lưu trong trình duyệt).
 - Chưa có animation ngoài idle tự sinh bằng code.
 - Model local nhỏ đôi khi quên tag cảm xúc hoặc tự chế tag (vd `[concerned]`). Tag tự chế hay gặp được quy về cảm xúc gần nhất

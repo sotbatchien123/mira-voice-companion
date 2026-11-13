@@ -98,3 +98,13 @@ ngữ điệu đều, không phải do giọng trầm.
 có 0–0,05s im lặng đầu/cuối nên các câu dính liền, không có nhịp nghỉ; câu ngắn đọc rất nhanh ("Chào anh!" 0,41s).
 
 Mẫu nghe thử: `out/vieneu/<tên giọng>.wav`.
+
+## Bổ sung 2026-11-14: STT trong app (spec 003)
+
+`bench_stt.py` (WhisperSTT của app, small CPU int8, giọng VieNeu 3 người + nhiễu):
+- Nhận dạng ~1,5s/câu 1,4–2,4s với luồng mặc định; **12 luồng: 1,25s** (16 luồng không nhanh thêm).
+- WER trung bình 13% (Mỹ Duyên/Trúc Ly tốt; giọng nam Thái Sơn tới 43%).
+- Không VAD: ồn trắng 0,05 và ù 50Hz đều bị bịa "Hãy subscribe cho kênh Ghiền Mì Gõ" với no_speech_prob 0,89–0,93 nhưng
+  avg_logprob -0,28 → bộ lọc phải dựa vào no_speech_prob > 0,8 + danh sách câu bịa, không dựa vào logprob.
+  Câu nói thật có no_speech_prob tới 0,58.
+- Qua HTTP (`scripts/verify_stt.py`, giọng Ngọc Huyền): 1,23–1,35s, WER trung bình 6%, 0 câu bịa từ im lặng/ồn/ù.

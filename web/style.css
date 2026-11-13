@@ -47,3 +47,6 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: #eee; }
 .composer button { padding: 0 16px; border-radius: 8px; border: 0; background: var(--accent); color: #222;
   font-weight: 600; cursor: pointer; }
 .composer button:disabled { opacity: 0.5; cursor: default; }
+.composer #mic-btn { background: #3a3550; color: #eee; user-select: none; touch-action: none; }
+.composer #mic-btn.listening { background: var(--accent); color: #222; }
+.composer #mic-btn.busy { opacity: 0.6; }

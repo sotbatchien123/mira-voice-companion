@@ -20,7 +20,7 @@ from typing import Literal
 
 import numpy as np
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
@@ -28,6 +28,7 @@ from pydantic import BaseModel, Field, field_validator
 from .emotion_tags import EmotionTagParser, ParsedChunk
 from .llm import ChatLLM, LLMError, make_llm
 from .speech_text import SpeechSegmenter, clean_for_speech
+from .stt import SAMPLE_RATE, SpeechRecognizer, STTError, make_stt
 from .tts import SpeechEngine, TTSError, make_tts
 from .turn_log import TurnLog
 
@@ -77,6 +78,11 @@ def get_tts() -> SpeechEngine | None:
 
 
 @lru_cache
+def get_stt() -> SpeechRecognizer | None:
+    return make_stt()
+
+
+@lru_cache
 def get_turn_log() -> TurnLog:
     return TurnLog(ROOT / "logs" / "turns.jsonl")
 
@@ -99,19 +105,21 @@ def friendly_error(err: Exception) -> str:
     return f"Có lỗi ngoài dự kiến: {err}. Xem log của server để biết chi tiết."
 
 
-async def _warm_up_voice(tts: SpeechEngine) -> None:
+async def _warm_up(label: str, engine: SpeechEngine | SpeechRecognizer) -> None:
     try:
-        await asyncio.to_thread(tts.warm_up)
+        await asyncio.to_thread(engine.warm_up)
     except Exception:
-        log.warning("nạp giọng lúc khởi động thất bại", exc_info=True)
+        log.warning("nạp %s lúc khởi động thất bại", label, exc_info=True)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    tts = get_tts()
-    if tts is not None:
-        # Nạp giọng nền lúc khởi động để lượt nói đầu không chậm thêm ~0,5s
-        app.state.warm_up = asyncio.create_task(_warm_up_voice(tts))
+    # Nạp sẵn giọng (VieNeu ~8s) và tai (Whisper ~2s) ở nền để lượt nói/nghe đầu không bị chậm
+    app.state.warm_ups = [
+        asyncio.create_task(_warm_up(label, engine))
+        for label, engine in (("giọng", get_tts()), ("Whisper", get_stt()))
+        if engine is not None
+    ]
     yield
 
 
@@ -119,15 +127,63 @@ app = FastAPI(title="Waifu Chat", lifespan=lifespan)
 
 
 @app.get("/api/health")
-async def health(llm: ChatLLM = Depends(get_llm), tts: SpeechEngine | None = Depends(get_tts)) -> dict:
-    """`ok` = não đã sẵn sàng. Giọng có trạng thái riêng để thiếu giọng không chặn chat."""
+async def health(
+    llm: ChatLLM = Depends(get_llm),
+    tts: SpeechEngine | None = Depends(get_tts),
+    stt: SpeechRecognizer | None = Depends(get_stt),
+) -> dict:
+    """`ok` = não đã sẵn sàng. Giọng và tai có trạng thái riêng để thiếu chúng không chặn chat."""
     problem = await llm.check()
     if tts is None:
         voice = {"engine": None, "ok": False, "problem": "Giọng nói đang tắt (TTS_PROVIDER=none trong .env)."}
     else:
         voice_problem = tts.check()
         voice = {"engine": tts.name, "ok": voice_problem is None, "problem": voice_problem}
-    return {"ok": problem is None, "provider": llm.provider, "model": llm.model, "problem": problem, "voice": voice}
+    if stt is None:
+        ears = {"engine": None, "ok": False, "problem": "Nghe giọng nói đang tắt (STT_PROVIDER=none trong .env)."}
+    else:
+        stt_problem = stt.check()
+        ears = {"engine": stt.name, **stt.info(), "ok": stt_problem is None, "problem": stt_problem}
+    return {"ok": problem is None, "provider": llm.provider, "model": llm.model, "problem": problem,
+            "voice": voice, "stt": ears}
+
+
+MIN_STT_SECONDS = 0.2
+MAX_STT_SECONDS = 30
+
+
+@app.post("/api/stt")
+async def speech_to_text(
+    request: Request,
+    stt: SpeechRecognizer | None = Depends(get_stt),
+    turn_log: TurnLog = Depends(get_turn_log),
+) -> dict:
+    """Body: PCM 16-bit LE mono 16kHz. Trả {text, audio_ms, ms}; text rỗng nếu không nghe thấy tiếng nói."""
+    if stt is None:
+        raise HTTPException(503, "Nghe giọng nói đang tắt (STT_PROVIDER=none trong .env).")
+    pcm = await request.body()
+    if len(pcm) % 2:
+        raise HTTPException(400, "Dữ liệu âm thanh hỏng (số byte lẻ).")
+    seconds = len(pcm) / 2 / SAMPLE_RATE
+    if seconds < MIN_STT_SECONDS:
+        raise HTTPException(400, "Đoạn ghi âm quá ngắn, giữ nút lâu hơn chút nha.")
+    if seconds > MAX_STT_SECONDS:
+        raise HTTPException(413, f"Đoạn ghi âm dài quá {MAX_STT_SECONDS} giây, nói ngắn lại chút nha.")
+    start = time.perf_counter()
+    error = None
+    text = ""
+    try:
+        text = await asyncio.to_thread(stt.transcribe, pcm)
+    except Exception as err:
+        log.exception("stt failed")
+        error = str(err) if isinstance(err, STTError) else f"Không nhận dạng được giọng nói: {err}"
+    took = round((time.perf_counter() - start) * 1000)
+    # Không lưu âm thanh hay nội dung, chỉ độ dài và thời gian xử lý
+    turn_log.write({"kind": "stt", "engine": stt.name, "audio_ms": round(seconds * 1000), "ms": took,
+                    "chars": len(text), "error": error})
+    if error:
+        raise HTTPException(500, error)
+    return {"text": text, "audio_ms": round(seconds * 1000), "ms": took}
 
 
 FADE_IN_S = 0.01  # làm to dần 10ms ở đầu mỗi đoạn để không bật tiếng "tách"
