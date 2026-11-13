@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Waifu Chat</title>
+    <link rel="stylesheet" href="/style.css" />
+    <!-- Thư viện đã vendor sẵn trong web/vendor (xem vendor/VERSIONS.txt), không cần Node/bundler -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "/vendor/three/build/three.module.js",
+          "three/addons/": "/vendor/three/addons/",
+          "@pixiv/three-vrm": "/vendor/three-vrm/three-vrm.module.min.js"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <main class="app">
+      <section id="stage" class="stage">
+        <div id="drop-hint" class="drop-hint">
+          <p><strong>Chưa có model VRM</strong></p>
+          <p>Kéo thả file <code>.vrm</code> vào đây, hoặc đặt file vào <code>web/models/waifu.vrm</code></p>
+          <p class="muted">Tự tạo nhân vật miễn phí bằng VRoid Studio rồi Export → VRM.</p>
+          <label class="file-btn">Chọn file .vrm<input id="file-input" type="file" accept=".vrm" hidden /></label>
+        </div>
+        <div id="status" class="status"></div>
+      </section>
+
+      <section class="chat">
+        <header class="chat-header">
+          <span id="char-name">Mira</span>
+          <div class="header-actions">
+            <button id="voice-btn" type="button" aria-pressed="false" title="Bật/tắt giọng nói">Giọng: tắt</button>
+            <button id="clear-btn" type="button" title="Xóa lịch sử chat">Xóa chat</button>
+          </div>
+        </header>
+        <ol id="log" class="log"></ol>
+        <form id="composer" class="composer">
+          <input id="input" autocomplete="off" placeholder="Nhắn gì đó cho cô ấy..." maxlength="2000" />
+          <button type="submit">Gửi</button>
+        </form>
+      </section>
+    </main>
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>

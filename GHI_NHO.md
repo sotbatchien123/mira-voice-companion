@@ -1,0 +1,209 @@
+# GHI NHỚ DỰ ÁN — Waifu Chat
+
+## Trạng thái hiện tại
+
+- Hướng đã chốt: **Hướng 1 — web Three.js + VRM** trước; xong thì sang **Hướng 4** (tham khảo/fork dự án mã nguồn mở như Open-LLM-VTuber, AIRI, ChatVRM, Amica).
+- **Stack hiện tại: Python, không còn Node.** Python 3.12.16 do uv quản lý (`.venv`, `.python-version`, `pyproject.toml`, `uv.lock`). FastAPI + uvicorn, `anthropic` SDK 2.8.0 (model `claude-opus-5-5`, effort `low`, server-side fallback `"default"`). Frontend JS thuần + importmap, thư viện vendor trong `web/vendor/`.
+- **Có 2 "não", chọn bằng `LLM_PROVIDER` trong `.env`:** `ollama` (mặc định, model local `qwen3:8b`, gọi API gốc `/api/chat` NDJSON bằng httpx) hoặc `claude`. `.env` được tạo từ `.env.example` (mặc định `LLM_PROVIDER=ollama`).
+- Tách tag cảm xúc đã chuyển lên server (`app/emotion_tags.py`), để TTS nhận text sạch.
+- **Giọng nói (spec 002, xong trừ T013):**
+  - Mặc định **VieNeu-TTS v3 Turbo, giọng Mỹ Duyên** (người dùng chọn sau khi nghe mẫu), CPU/ONNX, không tốn VRAM. Piper còn làm dự phòng (`TTS_PROVIDER=piper`).
+  - Hợp đồng `SpeechEngine.stream()` trả PCM theo mảnh. `Speaker` chạy nền nên chữ không chờ giọng. Event `audio` dạng PCM theo mảnh, thêm `text_done` (cho gửi tin mới khi chữ xong).
+  - Frontend phát PCM theo mảnh. Miệng tự cân theo đỉnh âm lượng. Nút "Giọng: bật/tắt". Log `logs/turns.jsonl`.
+  - Đo thật: audio đầu 0,53–0,61s, chữ đầu 0,13–0,15s, 0 lỗ hổng khi phát, VRAM không đổi.
+  - Miệng nhép trên VRM thật đã kiểm chứng (T013). Người dùng chưa nghe bản chạy trong app.
+- `uv run pytest` hiện là **46/46 pass**.
+- **Đã kiểm chứng với qwen3:8b thật (spec 001):**
+  - `uv run pytest` 20/20 pass (lúc đó).
+  - `scripts/verify_live.py --warmup`: chữ đầu ≤ 2s ở 5/5 câu, 5/5 câu có tag, không lộ tag.
+  - Trình duyệt: chữ hiện dần, tải lại trang vẫn còn lịch sử.
+  - Model chưa pull thì báo đúng lệnh `ollama pull` (T017, chạy với Ollama thật).
+  - Nhớ ngữ cảnh 2 lượt (tên, sở thích).
+- **Chất lượng sau khi sửa (đo với qwen3:8b thật):**
+  - Không còn dấu cách đôi; chữ lúc stream và sau khi tải lại trang giống hệt nhau.
+  - Xưng hô sai: 1/24 câu (trước khi sửa prompt là 2/24 đến 2/5). Lỗi hay gặp khi người dùng nói "mình". Đổi temperature 0,8 → 0,5 không giúp rõ.
+  - Nhớ ngữ cảnh: 3/3 lần đúng, không bịa chuyện của người dùng.
+- **Avatar:** `web/models/waifu.vrm` là `Mira.vrm` người dùng tự làm trong VRoid (VRM 1.0, texture Shrinked ~59MB VRAM, gitignored; bản gốc `.vroid` ở OneDrive\Documents\Model VROID). Tay buông, biểu cảm, chớp mắt, nhép miệng đều đã kiểm chứng (T020, T013). Model có thêm khẩu hình `ee/ih/oh/ou` chưa dùng.
+- Spec Kit 1.4.0: `constitution.md`, `spec.md`, `plan.md`, `research.md`, `contracts/`, `quickstart.md`, `tasks.md`.
+- **Ollama 0.40.16**: app tray báo timeout, server không lên. Đang chạy được bằng `ollama serve` mở tay. Đã pull **qwen3:8b** (5,2GB, Q4_K_M).
+- Lưu ý: `--reload` của uvicorn không theo dõi `.env`; sửa `.env` thì phải khởi động lại server. Sau `uv sync` (đổi nhiều file trong `.venv`), bộ reload có thể đứng: code mới không được nạp. Kiểm tra bằng `/api/health` hoặc khởi động lại server. Trên Windows, kết nối tới cổng chưa mở mất khoảng 2 giây mới báo lỗi (hành vi của TCP, không phải bug).
+- Máy: RTX 5070 Laptop 8GB VRAM; Ollama detect 6.8GB available. Python hệ thống 3.9/3.10 + anaconda vẫn còn, không dùng cho dự án này.
+
+## Việc tiếp theo
+
+Kế hoạch đề xuất sau rà soát 2026-11-13 (chờ người dùng chốt):
+
+**Ràng buộc chính:** khi `qwen3:8b` đã nạp, VRAM dùng 7,39/8,15GB, chỉ còn khoảng 0,76GB. TTS và STT không chạy thêm trên GPU được, trừ khi đổi sang LLM nhỏ hơn.
+
+0. ~~Dọn nhỏ~~ (xong phiên 7). App tray Ollama vẫn không bật được server. Đã cho `ollama serve` tự chạy khi đăng nhập (phiên 8).
+1. ~~T020~~ (xong phiên 15): spec 001 và 002 đã xong hết task.
+2. ~~Đo trước khi chọn~~ (xong phiên 9; số liệu ở `spikes/audio/KET_QUA.md`). Đề xuất, chờ người dùng chốt:
+   - **Spec 002** dùng Piper `vi_VN-vais1000-medium`: chạy CPU, audio đầu tiên trong 0,04s, CC-BY-4.0. Giữ `qwen3:8b`.
+   - **Spec 004 (giọng riêng)** dùng F5-TTS tiếng Việt: chạy GPU, khoảng 1,4s/câu, đọc rõ hơn Piper, license phi thương mại.
+     - Muốn vừa VRAM phải đổi sang `qwen3:4b-instruct` (đã đo: nhanh, đủ tag, nhưng hay chèn emoji).
+     - Cần một đoạn mẫu giọng sạch 5–10s, có quyền dùng.
+   - viXTTS: bỏ (cần fork cũ, không chạy RTX 5070).
+3. ~~Spec 002 – TTS~~ (xong phiên 11, còn T013 cần VRM). Khi sang F5-TTS (~1,4s/câu): chuyển tạo giọng sang worker nền để chữ không bị chặn (ghi trong `specs/002-voice-tts/plan.md`).
+4. **Spec 003 – STT:** faster-whisper `small`. Bấm-giữ-để-nói trước, rồi mới tới rảnh tay có VAD.
+5. **Spec 004 – giọng riêng của Mira:** cần người dùng chốt nguồn giọng mẫu có quyền dùng.
+   - Không dùng GPT-SoVITS (theo hiểu biết hiện tại, không hỗ trợ tiếng Việt).
+   - Không dùng Common Voice (nhiều người nói; bản trên HF đã trống).
+6. **Trí nhớ dài hạn:** tóm tắt hội thoại. Lưu ý Ollama đang chạy với context 4096 token; lịch sử dài có thể bị cắt mà không báo.
+7. **Hướng 4:** đào sâu hơn sau khi có giọng nói.
+
+## Tham khảo: Animates (animates.ai, Animation Inc.), đọc 2026-11-13
+
+Nguồn: trang chủ và `/privacy` (bản sửa 2026-09-07). Họ không công bố kỹ thuật avatar.
+
+**Cách họ làm:** 100% cloud.
+- App native cho iOS, Android, Mac, Windows. Backend trên Google Cloud, Cloudflare ở biên.
+- LLM qua nhiều nhà cung cấp, chọn theo tính năng và tình trạng sẵn có: SpaceXAI API (có vẻ là API Grok), Gemini/Vertex, Amazon Bedrock, Cloudflare Workers AI, Cerebras (suy luận rất nhanh), OpenRouter, FriendliAI, DeepInfra, Claude (dùng cho thị giác).
+- STT: SpaceXAI, Google, Amazon Transcribe, Soniox (STT stream). TTS: SpaceXAI.
+- Các phần khác:
+  - Nhớ hội thoại cũ để cá nhân hóa.
+  - Chụp màn hình theo chu kỳ, gửi cho model thị giác.
+  - Tìm web qua Exa.
+  - Theo dõi LLM bằng Langfuse.
+
+**Ý hợp với máy mình** (đã cân nhắc ràng buộc 8GB VRAM):
+1. Ghi log từng lượt (độ trễ STT/LLM/TTS, model, lỗi) ra JSONL. Bản nhẹ của Langfuse, không tốn VRAM → đưa vào spec 002.
+2. Ưu tiên tốc độ hơn độ thông minh: họ dùng cả Cerebras, khớp với constitution II. Đúng hướng model nhỏ + đọc câu đầu sớm.
+3. Nhiều nhà cung cấp có dự phòng: `ChatLLM` đã sẵn. Có thể thêm chế độ "local trước, lỗi thì sang Claude" (chỉ khi người dùng bật).
+4. Trí nhớ dài hạn: tóm tắt + danh sách sự thật về người dùng, chèn vào prompt có giới hạn token (context Ollama đang 4096).
+5. STT stream (như Soniox): để sau, khi bản bấm-giữ-để-nói đã ổn.
+
+**Không hợp lúc này:**
+- Chụp màn hình + model thị giác local: thêm vài GB VRAM.
+- App native nhiều nền tảng.
+- Định tuyến nhiều nhà cung cấp cloud (trái local-first).
+
+## Nhật ký phiên
+
+### 2026-11-14 (lần 15): nạp model VRM thật của Mira
+- Người dùng gửi `.vroid` (file dự án, không dùng được) → hướng dẫn xuất VRM. Texture chọn Shrinked để tiết kiệm VRAM.
+- Đọc cấu trúc `Mira.vrm`: VRM 1.0, đủ expression (cả `ee/ih/oh/ou`), 54 xương, 53 spring, texture ~59MB. Chép vào `web/models/waifu.vrm`.
+- **Kiểm chứng trên trình duyệt:**
+  - Nạp tự động, camera canh mặt, tay buông.
+  - Hook `VRMExpressionManager.setValue` qua dynamic import: `sad` 0,8, `surprised`, `blink` 1,0, `aa` tối đa 0,74 khi đang nói.
+- **Lỗi bắt được khi chạy thật:** qwen3:8b dùng `[concerned]` → hiện ra khung chat. Sửa `app/emotion_tags.py`: thêm alias (concerned/worried→sad, excited→happy…), bỏ mọi tag lạ còn lại.
+- `test_phuc_vu_frontend` phụ thuộc việc chưa có `waifu.vrm` → đổi sang đường dẫn chắc chắn không tồn tại.
+- Test 46 → 47 pass. `verify_live --voice` 5/5, 0 tag lộ.
+
+### 2026-11-13 (lần 14): đổi giọng sang VieNeu Mỹ Duyên
+- Người dùng chọn **Mỹ Duyên**.
+- Thăm dò `infer_stream`: mảnh 0,32s, float32 48kHz, audio đầu 0,23s, RTF ~0,45. Mỗi câu tự có ~0,06s lặng đầu và 0,24–0,37s lặng cuối. int8 không nhanh hơn rõ, nạp lâu hơn → giữ fp32.
+- Spec 002 bổ sung FR-010..013, SC-005; tasks Phase 7 (T016–T024).
+- **Thay đổi:**
+  - `vieneu>=3.8` (`.venv` lên 719MB).
+  - `app/tts.py`: hợp đồng `stream`, `VieNeuTTS`.
+  - `app/main.py`: `Speaker` chạy nền, `iterate_in_thread`, fade-in 10ms, khoảng nghỉ cho Piper, `text_done`.
+  - `web/audio_player.js` phát PCM; `web/main.js` cho ngắt lời sau `text_done`; avatar tự cân âm lượng.
+  - `.env(.example)` → `TTS_PROVIDER=vieneu`, `VIENEU_VOICE=Mỹ Duyên`.
+- **Test 40 → 46**, có bài khóa chéo chứng minh chữ không chờ giọng.
+- **Kiểm chứng thật:**
+  - `verify_live --voice` 5/5.
+  - 100 mảnh / 3 câu không lỗ hổng.
+  - Trình duyệt: ngắt lời đúng, lịch sử đúng; miệng mô phỏng trên âm lượng thật mở trung vị 0,32.
+  - Piper dự phòng vẫn chạy.
+
+### 2026-11-13 (lần 13): giọng Piper bị chê, thử VieNeu-TTS
+- Người dùng nghe Piper: "cứng, nghe già, bị khựng". Muốn giọng nhẹ kiểu anime Nhật và mượt hơn.
+- Đo: không có khoảng chờ giữa các đoạn; "khựng" là do các câu dính liền, không có nhịp nghỉ (0–0,05s). Cao độ Piper 234–250 Hz, không thấp.
+- Thử **VieNeu-TTS v3 Turbo** (Apache-2.0, CPU/ONNX):
+  - Audio đầu 0,21s (stream), RTF 0,37, không tốn VRAM.
+  - 11 giọng nữ, đa số Whisper nghe sai 0–12% (Piper 25–38%).
+  - Bắt chước giọng từ mẫu 3–8s.
+  - Số liệu ở `spikes/audio/KET_QUA.md`, mẫu ở `spikes/audio/out/vieneu/`.
+- Chờ người dùng nghe mẫu và chọn giọng trước khi đổi engine.
+
+### 2026-11-13 (lần 12): prompt tạo model 3D cho Mira
+- Người dùng xin prompt tạo model 3D. Chỉ trả lời trong chat, không sửa code.
+- Đã chốt yêu cầu kỹ thuật cho file `web/models/waifu.vrm` (dựa trên `web/avatar.js`): cần expression `happy/angry/sad/relaxed/surprised`, `blink`, `aa`, đủ humanoid bone (có `head`, `left/rightUpperArm`), lookAt, spring bone.
+- Lưu ý đã báo người dùng: model sinh từ AI text/image-to-3D (Meshy, Tripo…) thường **không có blendshape mặt**, nên miệng/chớp mắt/cảm xúc sẽ không chạy. Khuyên: AI vẽ concept art → dựng trong VRoid Studio → xuất VRM.
+- Người dùng muốn dùng Tripo Studio (studio.tripo3d.ai). Theo blog của Tripo: Tripo có Auto Rig, nhưng xuất FBX/GLB, **không thấy xuất VRM trực tiếp** và không tạo blendshape mặt. Muốn đưa vào app thì phải qua Blender + add-on VRM (tự tạo shape key `aa`, `blink`, 5 cảm xúc) hoặc Unity + UniVRM.
+- Việc tiếp theo vẫn là T020.
+
+### 2026-11-13 (lần 11): spec 002 – giọng nói Piper
+- Spec Kit: `specs/002-voice-tts/` gồm spec, plan, research, contract và tasks. `.specify/feature.json` trỏ sang 002.
+- **Backend:**
+  - Thêm `piper-tts>=1.8`.
+  - Thêm `app/speech_text.py` (tách đoạn, lọc emoji), `app/tts.py` (`SpeechEngine`, `PiperTTS`, nạp giọng nền lúc khởi động), `app/turn_log.py`.
+  - `app/main.py`: thêm `voice`, event `audio`/`tts_error`; `/api/health` có thêm `voice`.
+  - Thêm `scripts/get_voice.py`, mở rộng `scripts/verify_live.py --voice`.
+- **Frontend:** thêm `web/audio_player.js`; nút giọng; avatar `setMouthLevel()`. Hệ số miệng chỉnh theo RMS Piper đo được (trung vị 0,17).
+- **Test:** 27 → 40, có `tests/conftest.py` mặc định tắt giọng và log vào thư mục tạm.
+- **Đo thật:** audio đầu 0,51–0,68s; 0 đoạn đọc emoji/tag; VRAM không tăng ngoài phần của qwen3:8b.
+- **Trình duyệt:**
+  - AudioContext chạy, các đoạn phát nối tiếp.
+  - Gửi tin mới thì dừng audio cũ.
+  - Tắt giọng thì không phát, lựa chọn được nhớ.
+  - `get_voice.py` tải lại từ đầu, file giống hệt bản cũ.
+- Chèn audio ngay trong luồng làm tổng thời gian mỗi lượt dài thêm khoảng 0,1s/đoạn (Piper), chấp nhận được.
+- **Chưa:** chưa nghe bằng tai; chưa thấy miệng trên VRM (T013).
+- Cache uv khoảng 7,9GB; ổ C còn khoảng 51GB.
+
+### 2026-11-13 (lần 9): đo TTS/STT/LLM
+- Script đo trong `spikes/` (chạy bằng `uv run --no-project`, không thêm dependency dự án). Kết quả ở `spikes/audio/KET_QUA.md`.
+- **Piper:**
+  - `vais1000` chạy rất nhanh và đủ dấu thanh.
+  - `25hours_single` mất dấu thanh → loại.
+- **Whisper `small`:** CPU khoảng 1,5s/câu, GPU 0,2–0,3s.
+- **F5-TTS tiếng Việt:**
+  - Chạy được trên RTX 5070 (torch 2.11+cu128): khoảng 1,4s/câu, khoảng 1–1,3GB VRAM.
+  - Đọc rõ hơn Piper (WER 8–15% so với 25–38%).
+- **LLM:** `qwen3:4b-instruct` dùng 3,1GB VRAM, nhanh, đủ tag. `qwen3:4b` là bản chỉ-suy-nghĩ → đã `ollama rm`.
+- **VRAM nền** (Windows, app) khoảng 2GB. `qwen3:8b` cộng F5 không vừa 8GB.
+- **Chưa làm:** chưa ai nghe bằng tai các file trong `spikes/audio/out/`; chưa thử giọng thật qua mic; chưa đo riêng VRAM của Whisper GPU.
+- **Cache:** torch cu128 (2,6GB) và các model nằm trong cache của uv/HF. Cache uv của app Claude bị Windows chuyển hướng sang `AppData\Local\Packages\Claude_…\LocalCache`. Dọn bằng `uv cache clean` nếu cần chỗ.
+
+### 2026-11-13 (lần 8): Ollama tự chạy khi đăng nhập
+- Người dùng đồng ý. Tạo `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\ollama-serve.vbs`, chạy ẩn `ollama serve`. Xóa file này để tắt.
+- Đã thử: tắt `ollama serve` cũ, chạy file `.vbs` → Ollama lên sau 2s, chạy độc lập; `/api/health` ok, chat trả lời bình thường. **Chưa thử khởi động lại máy thật.**
+- Người dùng hỏi `ollama launch claude`: đó là lệnh của Ollama để mở Claude Code dùng model local. Không liên quan Waifu Chat, và `qwen3:8b` với context 4096 quá nhỏ cho việc này.
+
+### 2026-11-13 (lần 7): bước 0 – dọn nhỏ
+- `pyproject.toml`: `anthropic>=2.8`, đã chạy `uv lock`. Bỏ getter `hasModel` trong `web/avatar.js`.
+- Thêm `ChatLLM.check()`:
+  - Ollama gọi `/api/tags`, coi "qwen3" và "qwen3:latest" là một.
+  - Claude chỉ xem có key, không gọi API.
+  - `/api/health` trả `ok` + `problem`. `web/main.js` gọi khi mở trang, hiện lỗi trong khung chat nếu chưa sẵn sàng.
+- Test 24 → 27, pass hết. Chạy thật:
+  - Tắt Ollama thì `/api/health` và trang báo đúng câu lỗi.
+  - Bật lại thì hết báo lỗi, chat chạy bình thường.
+- App tray Ollama: tắt rồi mở lại vẫn không bật được server. `server.log` trống, app log báo "timeout waiting for Ollama server to be ready". Nghi do đường dẫn có dấu cách (`ASUS G615`) nhưng chưa chứng minh. `ollama serve` chạy tay thì ổn.
+
+### 2026-11-13 (lần 6): rà soát cuối, xác định lại kế hoạch
+- Đo VRAM: `qwen3:8b` chiếm 5,59GB, tổng đang dùng 7,39/8,15GB → kế hoạch audio phải chạy CPU hoặc đổi LLM nhỏ. Viết lại "Việc tiếp theo" theo ràng buộc này.
+- Phát hiện: lower bound `anthropic>=1.0` sai, getter `hasModel` không dùng, context Ollama 4096 token. Chưa sửa, chờ người dùng.
+
+### 2026-11-13 (lần 5): kế hoạch TTS sai, rà soát toàn dự án
+- Kế hoạch TTS trước đó có nhiều thông tin bịa: repo `mozilla/common_voice_client`, script GPT-SoVITS, "Whisper API của Anthropic", Common Voice VI 100h. Tải Common Voice thất bại cả 2 cách. Đã xóa thư mục `C:\Users\ASUS G615\tts_data` (chỉ có script/log sai). Đã chạy `uv sync` để gỡ các gói `datasets`, `librosa`… cài nhầm vào `.venv`.
+- Người dùng chốt: TTS và STT đều local, Whisper `small`, muốn giọng riêng. Đã dọn 63,5GB ổ C.
+- Rà soát: kiểm chứng thật T017 và nhớ ngữ cảnh. Sửa lại báo cáo phiên 4 cho đúng (T017 trước đó chỉ dựa vào unit test).
+- Đã sửa theo kết quả rà soát:
+  - `emotion_tags.py`: bỏ dấu cách sau tag, kể cả khi nằm ở mảnh stream kế tiếp. Regex trong `web/main.js` khớp theo.
+  - Lỗi Claude chuyển vào `ClaudeLLM`; `friendly_error` không còn nhắc API key cho lỗi bất kỳ. `/api/health` bỏ `hasKey` (constitution I).
+  - `OllamaLLM` bắt lỗi mạng giữa stream. `make_llm()` mặc định `ollama`.
+  - Persona: luôn xưng "em", không bịa ký ức.
+- Test 20 → 24, tất cả pass. Thêm test cho: dấu cách, Ollama chết giữa stream, sai key và thiếu key Claude, lỗi ngoài dự kiến, provider mặc định. SDK `anthropic` 2.x dùng `httpx2`, nên test giả lập Claude phải dùng `httpx2.MockTransport`.
+
+### 2026-11-13 (lần 4): áp dụng Spec Kit, cài Ollama, kiểm chứng thật
+- Áp dụng Spec Kit 1.4.0 (constitution v1.0.0, spec/plan/tasks/research/contracts/quickstart). Tất cả task phase 1–3 (US1 MVP) đều đã done. Research chọn qwen3:8b cho GPU 8GB (5.2GB, Q4_K_M quantization).
+- Cài Ollama 0.40.16 (Windows native). App tray timeout, dùng `ollama serve` trực tiếp trong background PowerShell. Pull qwen3:8b thành công (5.2GB).
+- Test thật với `scripts/verify_live.py --warmup`: **SC-001** 5/5 câu ≤ 2s (warmup 0.5s), **SC-002** 5/5 emotion tags, **SC-003** 0 leaks → MVP ready! Browser test gửi tin + reload lịch sử ok.
+- Cập nhật `README.md` (Ollama install notes, ghi chú tray timeout, verify_live.py), `GHI_NHO.md` (trạng thái hiện tại, session log). `specs/001-local-chat-mvp/tasks.md` đánh dấu T004, T014–T018, T023, T024 done. Pytest 20/20 pass.
+- Tiếp theo: TTS + lip-sync, STT + VAD, trí nhớ dài hạn, sau đó Hướng 4 (tham khảo dự án mã nguồn mở).
+
+### 2026-11-13 (lần 3): thêm LLM local qua Ollama
+- Người dùng muốn không phụ thuộc API, nên thêm `OllamaLLM` + `make_llm()` trong `app/llm.py` và `LLMError` cho thông báo lỗi thân thiện. `get_llm` trong `app/main.py` giờ chọn theo `LLM_PROVIDER`; `/api/health` trả thêm `provider`.
+- Thêm `httpx` vào dependencies chính, thêm `tests/test_ollama.py`. Cập nhật `.env.example` (mặc định ollama), tạo `.env`, cập nhật `README.md`.
+- Còn dở: người dùng cài Ollama để test thật.
+
+### 2026-11-13 (lần 2) — chuyển sang Python
+- Cài Python 3.12 qua uv, tạo `.venv`, viết lại backend bằng FastAPI (`app/`), frontend chuyển sang JS thuần trong `web/`, vendor three.js/three-vrm.
+- Đã xóa toàn bộ file Node: `package.json`, `package-lock.json`, `node_modules`, `tsconfig.json`, `vite.config.ts`, `server/`, `src/`, `public/`, `index.html` gốc, `dist/`.
+- Thêm `tests/` (pytest). Cập nhật `README.md`, `.gitignore`, `.env.example`, `.claude/launch.json` (chạy uvicorn cổng 8000).
+
+### 2026-11-13
+- Tư vấn các hướng làm AI 3D kiểu Grok Ani; người dùng chốt Hướng 1 rồi Hướng 4.
+- Dựng MVP bằng Node/Vite/TypeScript (đã thay bằng Python ở phiên sau).

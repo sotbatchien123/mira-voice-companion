@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.env
+# Quyền/cấu hình Claude Code riêng của máy này
+.claude/settings.local.json
+# Model VRM thường có license riêng, không đẩy lên git
+web/models/*.vrm
+# Model giọng tải về và log độ trễ từng lượt
+models/
+logs/
+# Model và audio tải về / tạo ra khi đo
+spikes/audio/models/
+spikes/audio/out/
+spikes/audio/*.log

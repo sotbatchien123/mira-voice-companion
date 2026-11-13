@@ -1,0 +1,24 @@
+[project]
+name = "waifu-chat"
+version = "0.2.0"
+description = "Chatbot nhân vật anime 3D: avatar VRM trên web, backend FastAPI + LLM local (Ollama) hoặc Claude API"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "anthropic>=2.8",  # cần httpx2 + tham số fallbacks
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "python-dotenv>=1.0",
+    "httpx>=0.27",  # gọi Ollama local
+    "piper-tts>=1.8",  # giọng nói tiếng Việt chạy CPU (spec 002)
+    "vieneu>=3.8",  # giọng mặc định (Mỹ Duyên), CPU/ONNX, không torch; kéo theo librosa, scipy… (~0,5GB)
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

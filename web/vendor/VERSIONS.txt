@@ -1,0 +1,1 @@
+three 0.187.0, three-vrm 3.5.5
