@@ -23,7 +23,10 @@ const avatar = new Avatar(stage);
 const player = new AudioPlayer({
   onLevel: (level) => avatar.setMouthLevel(level),
   // Có giọng thì đổi mặt đúng lúc câu đó được đọc, không phải lúc chữ hiện ra
-  onSegmentStart: ({ emotion }) => emotion && avatar.setEmotion(emotion),
+  onSegmentStart: ({ text, emotion }) => {
+    if (emotion) avatar.setEmotion(emotion);
+    avatar.setSpeechText(text); // nhép miệng theo nguyên âm của đoạn đang đọc
+  },
 });
 
 // ---------- Giọng nói ----------
@@ -213,7 +216,11 @@ const handsFreeBtn = $("handsfree-btn");
 const handsFreeSaved = localStorage.getItem(HANDSFREE_KEY) === "on";
 let handsFree = false;
 const mic = new MicRecorder({
-  onSpeechStart: interruptMira,
+  onSpeechStart: () => {
+    interruptMira();
+    avatar.setListening(true);
+  },
+  onSpeechEnd: () => avatar.setListening(false),
   onUtterance: (pcm) => transcribeAndSend(pcm),
   isAssistantSpeaking: () => player.playing,
 });

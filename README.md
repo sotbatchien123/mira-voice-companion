@@ -48,7 +48,8 @@ Test:
 | `app/speech_text.py` | Tách câu trả lời thành đoạn để đọc sớm (đoạn đầu cắt ở dấu phẩy), lọc emoji/ký hiệu |
 | `app/tts.py` | Hợp đồng `SpeechEngine` (stream PCM theo mảnh) + `VieNeuTTS`, `PiperTTS`; `make_tts()` chọn theo `TTS_PROVIDER` |
 | `app/turn_log.py` | Ghi `logs/turns.jsonl` |
-| `web/avatar.js` | Scene 3D, nạp VRM, idle (thở, chớp mắt, lắc đầu), biểu cảm, miệng theo âm lượng giọng (hoặc giả lập) |
+| `web/avatar.js` | Scene 3D, nạp VRM, idle (thở, chớp mắt, lắc đầu), biểu cảm, miệng theo nguyên âm + âm lượng, gật/nghiêng đầu theo nhịp nói, cảm xúc và khi lắng nghe |
+| `web/lipsync.js` | Nguyên âm chính từng âm tiết tiếng Việt → khẩu hình aa/ih/ou/ee/oh; bắt nhịp âm tiết từ âm lượng |
 | `web/audio_player.js` | Phát giọng theo từng mảnh PCM (Web Audio), đo âm lượng cho nhép miệng, dừng khi gửi tin mới |
 | `web/chat_client.js` | Đọc SSE từ server |
 | `app/memory.py` | Trí nhớ dài hạn: kho `data/memory.json`, luật thay/cộng theo loại, trích xuất bằng LLM, dựng system prompt có ngày giờ |
@@ -110,6 +111,7 @@ Chi tiết: `specs/002-voice-tts/contracts/chat-sse.md`.
   và mỗi lần mở trang (~4s), nên nếu gửi tin ngay trong vài giây đầu thì câu đó vẫn chậm hơn (đo: 4,6s so với 0,6s).
 - Trí nhớ dài hạn chỉ lưu "điều đáng nhớ" do model 8B tự trích: đôi khi sót ý khi một câu có nhiều ý; sai thì xóa trong
   nút Trí nhớ. Lịch sử gửi model được cắt theo ~5000 ký tự để vừa ngữ cảnh 4096 token.
-- Chưa có animation ngoài idle tự sinh bằng code.
+- Cử động vẫn tự sinh bằng code (thở, chớp mắt, dáng đầu theo cảm xúc, gật theo nhịp); chưa có animation tay/thân.
+- Thêm `?debug=1` vào địa chỉ trang để lộ `window.__mira.avatar` khi cần đo/gỡ lỗi.
 - Model local nhỏ đôi khi quên tag cảm xúc hoặc tự chế tag (vd `[concerned]`). Tag tự chế hay gặp được quy về cảm xúc gần nhất
   (`app/emotion_tags.py`, `ALIASES`), tag lạ còn lại bị bỏ đi để không hiện ra hay bị đọc thành tiếng.

@@ -20,12 +20,14 @@ export class MicRecorder {
    * @param {{
    *   onUtterance: (pcm: ArrayBuffer, seconds: number) => void,
    *   onSpeechStart?: () => void,
+   *   onSpeechEnd?: () => void,
    *   isAssistantSpeaking?: () => boolean,
    * }} handlers
    */
-  constructor({ onUtterance, onSpeechStart, isAssistantSpeaking }) {
+  constructor({ onUtterance, onSpeechStart, onSpeechEnd, isAssistantSpeaking }) {
     this.onUtterance = onUtterance;
     this.onSpeechStart = onSpeechStart ?? (() => {});
+    this.onSpeechEnd = onSpeechEnd ?? (() => {}); // luôn gọi khi hết lượt nói, kể cả khi đoạn quá ngắn bị bỏ
     this.isAssistantSpeaking = isAssistantSpeaking ?? (() => false);
     this.ctx = null;
     this.stream = null;
@@ -153,6 +155,7 @@ export class MicRecorder {
   }
 
   finish() {
+    this.onSpeechEnd();
     const frames = this.chunks;
     this.chunks = [];
     const rate = this.ctx.sampleRate;

@@ -84,6 +84,18 @@ Nguồn: trang chủ và `/privacy` (bản sửa 2026-09-07). Họ không công 
 
 ## Nhật ký phiên
 
+### 2026-11-14 (lần 21): spec 005 Mira sinh động hơn
+- `web/lipsync.js`: `mainVowel` (bỏ dấu thanh, giữ â/ă/ơ…; bỏ âm đệm qu/gi/o-u, iê/yê → ê), `syllableVisemes`, `SyllableTracker` (âm lượng tụt rồi vọt = âm tiết mới).
+- `web/avatar.js`:
+  - Trộn 5 khẩu hình theo âm tiết × độ mở.
+  - Gật nhẹ mỗi âm tiết, dáng đầu theo cảm xúc (chia cổ 0,4 / đầu 0,6), nghiêng khi lắng nghe.
+  - `?debug=1` → `window.__mira`.
+- `web/mic.js` thêm `onSpeechEnd` (không thì tiếng động ngắn bị bỏ làm Mira nghiêng đầu nghe mãi). `main.js` nối chữ đoạn đang đọc + trạng thái nghe.
+- **Kiểm chứng trên Mira.vrm + giọng thật:**
+  - 24/24 nguyên âm mẫu; nhịp/âm tiết 0,73–1,0 (5/5 đoạn); đủ 5 khẩu hình; góc đầu đổi đúng chiều (ảnh chụp).
+- **Bẫy:** khung trình duyệt ẩn → hoạt ảnh dừng; phải mở khung (`show_pane preview`) mới đo được.
+- Không có test JS tự động (không Node); kiểm chứng bằng script trong trình duyệt. Test Python vẫn 86/86.
+
 ### 2026-11-14 (lần 20): đổi tên + nạp sẵn model
 - Đổi tên thành **Mira – 3D Vietnamese Voice Companion**:
   - Đổi ở README, `<title>`, FastAPI title, `pyproject` (`mira-voice-companion`), constitution 1.0.1 (PATCH).
