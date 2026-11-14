@@ -1,6 +1,6 @@
 import pytest
 
-from app.main import app, get_stt, get_tts, get_turn_log
+from app.main import app, get_memory, get_stt, get_tts, get_turn_log
 from app.turn_log import TurnLog
 
 
@@ -9,6 +9,7 @@ def offline_voice_and_log(tmp_path):
     """Mặc định mọi test: không có engine giọng/nghe thật, log lượt chat ghi vào thư mục tạm."""
     app.dependency_overrides[get_tts] = lambda: None
     app.dependency_overrides[get_stt] = lambda: None
+    app.dependency_overrides[get_memory] = lambda: None
     app.dependency_overrides[get_turn_log] = lambda: TurnLog(tmp_path / "turns.jsonl")
     yield tmp_path / "turns.jsonl"
     app.dependency_overrides.clear()

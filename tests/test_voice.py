@@ -23,7 +23,7 @@ class FakeLLM:
         self.chunks = chunks
         self.done = done  # threading.Event báo đã phát hết chữ
 
-    async def stream(self, history):
+    async def stream(self, history, system=None):
         for c in self.chunks:
             yield ("text", c)
         if self.done:
@@ -167,7 +167,7 @@ def test_bao_xong_chu_truoc_khi_doc_xong_giong():
 
 def test_tu_choi_thi_khong_bao_xong_chu():
     class Refuse(FakeLLM):
-        async def stream(self, history):
+        async def stream(self, history, system=None):
             yield ("text", "...")
             yield ("stop", "refusal")
 

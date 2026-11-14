@@ -34,7 +34,8 @@
           <div class="header-actions">
             <button id="handsfree-btn" type="button" aria-pressed="false" title="Tự nghe khi anh nói, không cần bấm">Rảnh tay: tắt</button>
             <button id="voice-btn" type="button" aria-pressed="false" title="Bật/tắt giọng nói">Giọng: tắt</button>
-            <button id="clear-btn" type="button" title="Xóa lịch sử chat">Xóa chat</button>
+            <button id="memory-btn" type="button" title="Xem và xóa những điều Mira nhớ về anh">Trí nhớ</button>
+            <button id="clear-btn" type="button" title="Xóa lịch sử chat (không xóa trí nhớ)">Xóa chat</button>
           </div>
         </header>
         <ol id="log" class="log"></ol>
@@ -45,6 +46,15 @@
         </form>
       </section>
     </main>
+    <dialog id="memory-dialog" class="memory-dialog">
+      <header>
+        <strong>Mira nhớ gì về anh</strong>
+        <button id="memory-close" type="button" title="Đóng">Đóng</button>
+      </header>
+      <p class="muted">Chỉ lưu trên máy này (data/memory.json). Mira tự ghi khi anh kể về bản thân.</p>
+      <ul id="memory-list" class="memory-list"></ul>
+      <footer><button id="memory-clear" type="button">Quên hết</button></footer>
+    </dialog>
     <script type="module" src="/main.js"></script>
   </body>
 </html>

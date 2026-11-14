@@ -9,6 +9,8 @@ web/models/*.vrm
 # Model giọng tải về và log độ trễ từng lượt
 models/
 logs/
+# Trí nhớ dài hạn của Mira (dữ liệu cá nhân)
+data/
 # Model và audio tải về / tạo ra khi đo
 spikes/audio/models/
 spikes/audio/out/

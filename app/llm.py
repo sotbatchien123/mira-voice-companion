@@ -28,8 +28,14 @@ class ChatLLM(Protocol):
     provider: str
     model: str
 
-    def stream(self, history: list[dict[str, str]]) -> AsyncIterator[Event]:
-        """Phát ("text", delta) cho từng mảnh text, cuối cùng ("stop", stop_reason)."""
+    def stream(self, history: list[dict[str, str]], system: str | None = None) -> AsyncIterator[Event]:
+        """Phát ("text", delta) cho từng mảnh text, cuối cùng ("stop", stop_reason).
+
+        `system`: system prompt do server dựng (persona + ngày giờ + trí nhớ); None thì dùng persona gốc."""
+        ...
+
+    async def complete(self, messages: list[dict[str, str]], *, json_mode: bool = False, max_tokens: int = 256) -> str:
+        """Lời gọi ngắn, không stream (vd trích xuất trí nhớ). json_mode: ép trả JSON nếu provider hỗ trợ."""
         ...
 
     async def check(self) -> str | None:
@@ -58,12 +64,12 @@ class ClaudeLLM:
             return "Chưa có ANTHROPIC_API_KEY. Điền key vào file .env rồi khởi động lại server."
         return None
 
-    async def stream(self, history: list[dict[str, str]]) -> AsyncIterator[Event]:
+    async def stream(self, history: list[dict[str, str]], system: str | None = None) -> AsyncIterator[Event]:
         try:
             async with self.client.beta.messages.stream(
                 model=self.model,
                 max_tokens=2048,  # câu trả lời chat ngắn; tránh nhân vật nói quá dài
-                system=SYSTEM_PROMPT,
+                system=system or SYSTEM_PROMPT,
                 output_config={"effort": self.effort},
                 # Model chính từ chối vì bộ lọc an toàn -> API tự chuyển sang model dự phòng phù hợp
                 betas=["server-side-fallback-2026-07-01"],
@@ -74,19 +80,33 @@ class ClaudeLLM:
                     yield ("text", text)
                 final = await stream.get_final_message()
                 yield ("stop", final.stop_reason or "")
-        except anthropic.AuthenticationError as err:
-            raise LLMError("Sai ANTHROPIC_API_KEY. Kiểm tra lại file .env nhé.") from err
-        except anthropic.RateLimitError as err:
-            raise LLMError("Claude đang bị giới hạn tốc độ (429), thử lại sau ít giây nhé.") from err
-        except anthropic.APIStatusError as err:
-            raise LLMError(f"Claude API lỗi {err.status_code}: {err.message}") from err
-        except anthropic.APIConnectionError as err:
-            raise LLMError("Không kết nối được tới Claude API (kiểm tra mạng).") from err
-        except TypeError as err:
-            # SDK báo lỗi này trước khi gửi request khi không tìm thấy key nào
-            if "authentication method" not in str(err):
-                raise
-            raise LLMError("Chưa có ANTHROPIC_API_KEY. Điền key vào file .env rồi khởi động lại server.") from err
+        except Exception as err:
+            _raise_friendly_claude_error(err)
+
+    async def complete(self, messages: list[dict[str, str]], *, json_mode: bool = False, max_tokens: int = 256) -> str:
+        # Claude không có cờ ép JSON ở đây: prompt của bên gọi đã yêu cầu JSON, bên gọi tự parse an toàn
+        try:
+            res = await self.client.messages.create(model=self.model, max_tokens=max_tokens, messages=messages,
+                                                    output_config={"effort": "low"})
+        except Exception as err:
+            _raise_friendly_claude_error(err)
+        return "".join(b.text for b in res.content if getattr(b, "type", "") == "text")
+
+
+def _raise_friendly_claude_error(err: Exception) -> None:
+    """Đổi lỗi của SDK Claude thành LLMError có câu tiếng Việt; lỗi lạ thì để nguyên."""
+    if isinstance(err, anthropic.AuthenticationError):
+        raise LLMError("Sai ANTHROPIC_API_KEY. Kiểm tra lại file .env nhé.") from err
+    if isinstance(err, anthropic.RateLimitError):
+        raise LLMError("Claude đang bị giới hạn tốc độ (429), thử lại sau ít giây nhé.") from err
+    if isinstance(err, anthropic.APIStatusError):
+        raise LLMError(f"Claude API lỗi {err.status_code}: {err.message}") from err
+    if isinstance(err, anthropic.APIConnectionError):
+        raise LLMError("Không kết nối được tới Claude API (kiểm tra mạng).") from err
+    # SDK báo TypeError này trước khi gửi request khi không tìm thấy key nào
+    if isinstance(err, TypeError) and "authentication method" in str(err):
+        raise LLMError("Chưa có ANTHROPIC_API_KEY. Điền key vào file .env rồi khởi động lại server.") from err
+    raise err
 
 
 class OllamaLLM:
@@ -104,10 +124,10 @@ class OllamaLLM:
         self.temperature = float(os.getenv("OLLAMA_TEMPERATURE", "0.8"))
         self._transport = transport  # test truyền transport giả vào đây
 
-    def _payload(self, history: list[dict[str, str]]) -> dict:
+    def _payload(self, history: list[dict[str, str]], system: str | None = None) -> dict:
         payload: dict = {
             "model": self.model,
-            "messages": [{"role": "system", "content": SYSTEM_PROMPT}, *history],
+            "messages": [{"role": "system", "content": system or SYSTEM_PROMPT}, *history],
             "stream": True,
             "keep_alive": self.keep_alive,
             "options": {"temperature": self.temperature, "num_predict": 512},
@@ -116,12 +136,12 @@ class OllamaLLM:
             payload["think"] = self.think == "true"
         return payload
 
-    async def stream(self, history: list[dict[str, str]]) -> AsyncIterator[Event]:
+    async def stream(self, history: list[dict[str, str]], system: str | None = None) -> AsyncIterator[Event]:
         # connect ngắn để báo nhanh khi Ollama chưa bật; read dài vì lần đầu nạp model vào GPU khá lâu
         timeout = httpx.Timeout(120.0, connect=3.0)
         try:
             async with httpx.AsyncClient(base_url=self.base_url, timeout=timeout, transport=self._transport) as client:
-                async with client.stream("POST", "/api/chat", json=self._payload(history)) as res:
+                async with client.stream("POST", "/api/chat", json=self._payload(history, system)) as res:
                     if res.status_code != 200:
                         await res.aread()
                         raise LLMError(self._http_error(res))
@@ -148,6 +168,25 @@ class OllamaLLM:
             raise LLMError("Ollama phản hồi quá lâu (model quá nặng cho GPU, hoặc đang nạp lần đầu).") from err
         except httpx.HTTPError as err:
             raise LLMError(f"Mất kết nối với Ollama giữa chừng ({type(err).__name__}). Ollama còn chạy không?") from err
+
+    async def complete(self, messages: list[dict[str, str]], *, json_mode: bool = False, max_tokens: int = 256) -> str:
+        payload: dict = {
+            "model": self.model, "messages": messages, "stream": False, "keep_alive": self.keep_alive,
+            # nhiệt độ thấp: trích xuất cần ổn định, không cần sáng tạo
+            "options": {"temperature": 0.2, "num_predict": max_tokens},
+        }
+        if json_mode:
+            payload["format"] = "json"
+        if self.think in ("true", "false"):
+            payload["think"] = self.think == "true"
+        try:
+            async with httpx.AsyncClient(base_url=self.base_url, timeout=httpx.Timeout(60.0, connect=3.0), transport=self._transport) as client:
+                res = await client.post("/api/chat", json=payload)
+        except httpx.HTTPError as err:
+            raise LLMError(f"Không gọi được Ollama ({type(err).__name__}).") from err
+        if res.status_code != 200:
+            raise LLMError(self._http_error(res))
+        return res.json().get("message", {}).get("content", "")
 
     async def check(self) -> str | None:
         try:

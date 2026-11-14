@@ -5,7 +5,8 @@
 Chatbot nhân vật anime 3D chạy trên trình duyệt: avatar VRM (Three.js + three-vrm), backend Python
 (FastAPI), biểu cảm đổi theo tag cảm xúc mà LLM chèn vào câu trả lời, nói thành tiếng bằng giọng tiếng Việt
 chạy CPU (VieNeu-TTS, giọng Mỹ Duyên) và nhép miệng theo âm lượng giọng. Nói chuyện được bằng mic
-(Zipformer-30M tiếng Việt chạy CPU): giữ để nói, hoặc rảnh tay và ngắt lời Mira khi đang nói.
+(Zipformer-30M tiếng Việt chạy CPU): giữ để nói, hoặc rảnh tay và ngắt lời Mira khi đang nói. Mira nhớ điều anh kể qua nhiều ngày
+(trí nhớ dài hạn, lưu ở máy, xem/xóa được trong nút **Trí nhớ**).
 "Não" của nhân vật chọn được: **model local qua Ollama** (miễn phí, offline) hoặc **Claude API**.
 Không cần Node.js: thư viện frontend đã được vendor sẵn trong `web/vendor/`.
 
@@ -29,6 +30,7 @@ Sửa `.env` xong thì phải **tắt và chạy lại server**: `--reload` ch�
 
 Test:
 - `uv run pytest` (dùng LLM, Ollama và giọng giả, không gọi model thật).
+- `uv run python scripts/verify_memory.py` (trí nhớ với model thật; chỉ chạy khi trí nhớ đang trống, tự dọn sau khi xong).
 - `uv run python scripts/verify_stt.py` (nghe giọng nói với server thật: độ trễ, WER, im lặng/tiếng ồn).
 - `uv run python scripts/verify_live.py --warmup [--voice]` (test với model thật: đo độ trễ chữ và audio, tag cảm xúc,
   kiểm tra tag/emoji lộ ra hoặc bị đọc).
@@ -49,6 +51,7 @@ Test:
 | `web/avatar.js` | Scene 3D, nạp VRM, idle (thở, chớp mắt, lắc đầu), biểu cảm, miệng theo âm lượng giọng (hoặc giả lập) |
 | `web/audio_player.js` | Phát giọng theo từng mảnh PCM (Web Audio), đo âm lượng cho nhép miệng, dừng khi gửi tin mới |
 | `web/chat_client.js` | Đọc SSE từ server |
+| `app/memory.py` | Trí nhớ dài hạn: kho `data/memory.json`, luật thay/cộng theo loại, trích xuất bằng LLM, dựng system prompt có ngày giờ |
 | `app/stt.py` | Hợp đồng `SpeechRecognizer` + `ZipformerSTT` (mặc định, có Silero VAD chặn im lặng) + `WhisperSTT` (dự phòng) |
 | `web/mic.js`, `web/mic_worklet.js` | Ghi âm PCM 16kHz, giữ để nói, rảnh tay (VAD theo năng lượng) |
 | `web/main.js` | Giao diện chat, nút giọng/mic/rảnh tay, ngắt lời Mira, lưu lịch sử vào localStorage |
@@ -94,6 +97,8 @@ Chi tiết: `specs/002-voice-tts/contracts/chat-sse.md`.
   - Khi dùng Whisper:
   - `WHISPER_MODEL` (`small`), `WHISPER_DEVICE` (`cpu`; `cuda` cần cuBLAS/cuDNN + VRAM trống), `WHISPER_THREADS` (12).
 
+- Trí nhớ: `MEMORY_ENABLED` (`true` mặc định). Dữ liệu ở `data/memory.json`, không vào git.
+
 ## Giới hạn hiện tại
 
 - Giọng chưa đổi theo cảm xúc của câu (VieNeu có tag `[cười]`… đang thử nghiệm, chưa dùng). Giọng riêng là spec 004
@@ -102,7 +107,8 @@ Chi tiết: `specs/002-voice-tts/contracts/chat-sse.md`.
 - Nghe giọng nói đo trên giọng người thật (FLEURS): sai ~9% số từ. Chưa đo bằng mic laptop của người dùng sau khi đổi sang Zipformer. Chế độ rảnh tay
   dựa vào khử tiếng vọng của trình duyệt: dùng tai nghe sẽ chắc ăn hơn.
 - Sau khi Ollama nghỉ (`OLLAMA_KEEP_ALIVE`, mặc định 30 phút) câu đầu tiên chậm ~9s vì phải nạp lại model vào GPU.
-- Trí nhớ chỉ là 40 lượt chat gần nhất (lưu trong trình duyệt).
+- Trí nhớ dài hạn chỉ lưu "điều đáng nhớ" do model 8B tự trích: đôi khi sót ý khi một câu có nhiều ý; sai thì xóa trong
+  nút Trí nhớ. Lịch sử gửi model được cắt theo ~5000 ký tự để vừa ngữ cảnh 4096 token.
 - Chưa có animation ngoài idle tự sinh bằng code.
 - Model local nhỏ đôi khi quên tag cảm xúc hoặc tự chế tag (vd `[concerned]`). Tag tự chế hay gặp được quy về cảm xúc gần nhất
   (`app/emotion_tags.py`, `ALIASES`), tag lạ còn lại bị bỏ đi để không hiện ra hay bị đọc thành tiếng.

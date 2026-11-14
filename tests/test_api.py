@@ -19,7 +19,7 @@ class FakeLLM:
         self.chunks, self.stop, self.fail_after = chunks, stop, fail_after
         self.received = None
 
-    async def stream(self, history):
+    async def stream(self, history, system=None):
         self.received = history
         for i, c in enumerate(self.chunks):
             if self.fail_after is not None and i == self.fail_after:
@@ -120,3 +120,5 @@ def test_phuc_vu_frontend(client):
     assert client.get("/vendor/three-vrm/three-vrm.module.min.js").status_code == 200
     # model chưa có thì 404 (trang dựa vào đó để hiện hướng dẫn); không dùng waifu.vrm vì máy dev có thể đã có file
     assert client.head("/models/khong-ton-tai.vrm").status_code == 404
+    # trình duyệt phải hỏi lại server, không được dùng main.js cũ sau khi cập nhật app
+    assert client.get("/main.js").headers["cache-control"] == "no-cache"

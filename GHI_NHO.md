@@ -14,6 +14,7 @@
   - Miệng nhép trên VRM thật đã kiểm chứng (T013). Người dùng chưa nghe bản chạy trong app.
 - `uv run pytest` hiện là **46/46 pass**.
 - **Nghe giọng nói (spec 003):** mặc định **Zipformer-30M** (sherpa-onnx, CPU, model ở `D:\voice_models\Zipformer-30M-RNNT-6000h` của VoiceDeck), có Silero VAD chặn im lặng; Whisper `small` làm dự phòng. Nút "Giữ để nói" (hoặc giữ Space khi ô nhập trống), "Rảnh tay" (VAD theo VoiceDeck), người dùng nói thì Mira im. Đo: FLEURS người thật WER 8,8% / 0,18s. **Chưa thử lại mic thật sau khi đổi.**
+- **Trí nhớ dài hạn (spec 004):** `app/memory.py`, `data/memory.json` (gitignored). Model chỉ đề xuất điều mới + loại; code tự thay theo loại (tên, tuổi, nghề, nơi ở, cách gọi) và ghi ngày nói. System prompt có ngày giờ + điều đã nhớ. Lịch sử cắt theo 5000 ký tự. Nút "Trí nhớ" xem/xóa. Kiểm chứng thật đạt hết (`scripts/verify_memory.py`).
 - **Git:** repo khởi tạo 2026-11-14, nhánh `main`. `.claude/settings.local.json`, `.env`, model, log không vào git.
 - **Đã kiểm chứng với qwen3:8b thật (spec 001):**
   - `uv run pytest` 20/20 pass (lúc đó).
@@ -50,7 +51,7 @@ Kế hoạch đề xuất sau rà soát 2026-11-13 (chờ người dùng chốt)
 5. **Spec 004 – giọng riêng của Mira:** cần người dùng chốt nguồn giọng mẫu có quyền dùng.
    - Không dùng GPT-SoVITS (theo hiểu biết hiện tại, không hỗ trợ tiếng Việt).
    - Không dùng Common Voice (nhiều người nói; bản trên HF đã trống).
-6. **Trí nhớ dài hạn:** tóm tắt hội thoại. Lưu ý Ollama đang chạy với context 4096 token; lịch sử dài có thể bị cắt mà không báo.
+6. ~~Trí nhớ dài hạn~~ (xong phiên 19). Có thể thêm sau: tóm tắt hội thoại cũ; sự kiện hết hạn; tăng ngân sách lịch sử (prompt thật mới 2465/3584 token).
 7. **Hướng 4:** đào sâu hơn sau khi có giọng nói.
 
 ## Tham khảo: Animates (animates.ai, Animation Inc.), đọc 2026-11-13
@@ -80,6 +81,21 @@ Nguồn: trang chủ và `/privacy` (bản sửa 2026-09-07). Họ không công 
 - Định tuyến nhiều nhà cung cấp cloud (trái local-first).
 
 ## Nhật ký phiên
+
+### 2026-11-14 (lần 19): spec 004 trí nhớ dài hạn
+- **Spike** (`spikes/memory_extract.py`, qwen3:8b):
+  - System prompt 364 token; tiếng Việt ~2,1 ký tự/token.
+  - Lần 1, cho model tự chọn điều "outdated" để xóa → nó xóa bừa (câu hỏi "thích ăn gì" làm mất tên, tuổi, nghề, mèo) → bỏ.
+  - Lần 2, model chỉ gán loại, code tự thay → không mất oan, thay Đà Nẵng→Sài Gòn đúng; sót 1 ý trong câu 2 ý; tính sai ngày → code tự ghi ngày nói.
+  - Bản thân mình ghi nhầm 14/11/2026 là thứ Sáu (đúng là thứ Bảy): test bắt được.
+- **Làm:**
+  - `ChatLLM.stream(history, system)` + `complete(json_mode)` cho Ollama/Claude; `app/memory.py`.
+  - Trích xuất chạy song song với TTS sau `text_done`; `GET/DELETE /api/memory`; nút + hộp thoại "Trí nhớ".
+  - `trim_history` theo 5000 ký tự.
+- **Lỗi phát hiện khi kiểm chứng:**
+  - Trình duyệt dùng `main.js` cũ (không có header cache) → thêm `Cache-Control: no-cache` cho file giao diện. Lần đầu sau cập nhật cần tải lại cứng một lần.
+  - Nút header bị ngắt chữ → sửa CSS.
+- Test 65 → 83. `verify_memory.py` đạt hết; trình duyệt: xem, quên 1 điều, quên hết đều đúng. Dữ liệu thử đã xóa.
 
 ### 2026-11-14 (lần 17): học từ VoiceDeck để nhận dạng tốt hơn
 - Người dùng thử mic thật: nghe được nhưng nhận dạng còn sai. Tham khảo dự án VoiceDeck của người dùng (`D:\VoiceDeck`; thư mục `OneDrive\Documents\Buds 3` chỉ còn shortcut).

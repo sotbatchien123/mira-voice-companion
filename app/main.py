@@ -14,6 +14,7 @@ import threading
 import time
 from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -27,6 +28,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from .emotion_tags import EmotionTagParser, ParsedChunk
 from .llm import ChatLLM, LLMError, make_llm
+from .memory import MemoryStore, make_memory, remember, system_prompt
 from .speech_text import SpeechSegmenter, clean_for_speech
 from .stt import SAMPLE_RATE, SpeechRecognizer, STTError, make_stt
 from .tts import SpeechEngine, TTSError, make_tts
@@ -59,9 +61,20 @@ class ChatRequest(BaseModel):
         return v
 
 
-def trim_history(turns: list[ChatTurn]) -> list[dict[str, str]]:
-    """Giữ MAX_HISTORY lượt gần nhất, và luôn bắt đầu bằng lượt user (yêu cầu của API)."""
-    recent = turns[-MAX_HISTORY:]
+# Ollama chạy ngữ cảnh 4096 token và tự cắt phần đầu (gồm cả persona) khi vượt. Tiếng Việt ~2,1 ký tự/token:
+# system + ngày ~400 token, trí nhớ ≤ ~570, trả lời 512 -> lịch sử ≤ ~5000 ký tự (specs/004-long-term-memory/plan.md)
+HISTORY_CHAR_BUDGET = 5000
+
+
+def trim_history(turns: list[ChatTurn], char_budget: int = HISTORY_CHAR_BUDGET) -> list[dict[str, str]]:
+    """Giữ các lượt gần nhất trong giới hạn MAX_HISTORY và ngân sách ký tự; luôn bắt đầu bằng lượt user."""
+    recent: list[ChatTurn] = []
+    used = 0
+    for turn in reversed(turns[-MAX_HISTORY:]):
+        if recent and used + len(turn.content) > char_budget:
+            break  # lượt cuối (tin vừa gửi) luôn được giữ
+        recent.insert(0, turn)
+        used += len(turn.content)
     while recent and recent[0].role != "user":
         recent = recent[1:]
     return [t.model_dump() for t in recent]
@@ -80,6 +93,11 @@ def get_tts() -> SpeechEngine | None:
 @lru_cache
 def get_stt() -> SpeechRecognizer | None:
     return make_stt()
+
+
+@lru_cache
+def get_memory() -> MemoryStore | None:
+    return make_memory(ROOT)
 
 
 @lru_cache
@@ -307,6 +325,7 @@ async def chat(
     req: ChatRequest,
     llm: ChatLLM = Depends(get_llm),
     tts: SpeechEngine | None = Depends(get_tts),
+    memory: MemoryStore | None = Depends(get_memory),
     turn_log: TurnLog = Depends(get_turn_log),
 ) -> StreamingResponse:
     """Trả về SSE: emotion/text/audio ... rồi {type:"done", raw} hoặc {type:"error"}.
@@ -316,6 +335,21 @@ async def chat(
     """
     history = trim_history(req.messages)
     speak = req.voice and tts is not None
+    now = datetime.now()  # giờ máy người dùng
+    system = system_prompt(now, memory.facts() if memory else [])
+    user_message = req.messages[-1].content
+
+    async def update_memory() -> None:
+        """Trích điều đáng nhớ từ tin vừa gửi. Lỗi ở đây chỉ ghi log, không bao giờ làm hỏng lượt chat."""
+        started = time.perf_counter()
+        record: dict = {"kind": "memory", "added": 0, "replaced": 0, "error": None}
+        try:
+            record |= await remember(llm, memory, user_message, now)
+        except Exception as err:
+            log.warning("cập nhật trí nhớ thất bại", exc_info=True)
+            record["error"] = type(err).__name__
+        record["ms"] = round((time.perf_counter() - started) * 1000)
+        turn_log.write(record)
 
     async def events() -> AsyncIterator[str]:
         out: asyncio.Queue[str | None] = asyncio.Queue()
@@ -326,7 +360,7 @@ async def chat(
         async def produce() -> None:
             parser = EmotionTagParser()
             try:
-                async for kind, value in llm.stream(history):
+                async for kind, value in llm.stream(history, system=system):
                     if kind != "text":
                         st["stop"] = value
                         continue
@@ -350,9 +384,13 @@ async def chat(
                 final = {"raw": "".join(st["raw"]), "stopReason": st["stop"]}
                 # Chữ xong rồi: client lưu lịch sử và cho gửi tin mới ngay, không phải chờ đọc hết giọng
                 out.put_nowait(sse({"type": "text_done", **final}))
+                # Ghi nhớ chạy song song với tạo giọng (GPU vs CPU); `done` chờ cả hai để không bỏ task mồ côi
+                remembering = asyncio.create_task(update_memory()) if memory else None
                 if speaker:
                     speaker.feed(last)
                     await speaker.finish()
+                if remembering:
+                    await remembering
                 out.put_nowait(sse({"type": "done", **final}))
             except Exception as err:  # báo lỗi cho người dùng thay vì cắt kết nối im lặng
                 log.exception("chat failed")
@@ -388,5 +426,37 @@ async def chat(
     return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
 
 
+@app.get("/api/memory")
+def list_memory(memory: MemoryStore | None = Depends(get_memory)) -> dict:
+    """Những điều Mira nhớ về người dùng (để xem/xóa trên giao diện)."""
+    if memory is None:
+        return {"enabled": False, "facts": []}
+    return {"enabled": True, "facts": [f.__dict__ for f in memory.facts()]}
+
+
+@app.delete("/api/memory/{fact_id}")
+def forget_fact(fact_id: str, memory: MemoryStore | None = Depends(get_memory)) -> dict:
+    if memory is None or not memory.delete(fact_id):
+        raise HTTPException(404, "Không tìm thấy điều này trong trí nhớ.")
+    return {"ok": True}
+
+
+@app.delete("/api/memory")
+def forget_all(memory: MemoryStore | None = Depends(get_memory)) -> dict:
+    if memory is not None:
+        memory.clear()
+    return {"ok": True}
+
+
 # Mount cuối cùng để không che các route /api
+@app.middleware("http")
+async def revalidate_static(request: Request, call_next):
+    # Không có header này thì trình duyệt tự đoán file còn mới và dùng bản cũ sau khi cập nhật app.
+    # no-cache = vẫn lưu nhưng hỏi lại server mỗi lần; file không đổi thì server trả 304 (theo ETag), gần như không tốn gì.
+    response = await call_next(request)
+    if not request.url.path.startswith("/api/"):
+        response.headers.setdefault("Cache-Control", "no-cache")
+    return response
+
+
 app.mount("/", StaticFiles(directory=ROOT / "web", html=True), name="web")
