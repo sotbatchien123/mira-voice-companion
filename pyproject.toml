@@ -1,7 +1,7 @@
 [project]
-name = "waifu-chat"
+name = "mira-voice-companion"
 version = "0.2.0"
-description = "Chatbot nhân vật anime 3D: avatar VRM trên web, backend FastAPI + LLM local (Ollama) hoặc Claude API"
+description = "Mira – 3D Vietnamese Voice Companion: nhân vật VRM trên web, trò chuyện bằng giọng nói tiếng Việt chạy local"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "anthropic>=2.8",  # cần httpx2 + tham số fallbacks

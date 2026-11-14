@@ -187,3 +187,76 @@ def test_qua_api_tach_tag_va_bao_loi_than_thien():
         assert json.loads(last[6:])["message"].startswith("Không kết nối được Ollama")
     finally:
         app.dependency_overrides.clear()
+
+
+# ---------- nạp sẵn model (tránh chờ ~9s ở câu đầu sau khi Ollama nghỉ) ----------
+
+def test_warm_up_chi_nap_model_khong_sinh_chu(monkeypatch):
+    monkeypatch.setenv("OLLAMA_MODEL", "qwen3:8b")
+    monkeypatch.setenv("OLLAMA_KEEP_ALIVE", "30m")
+    seen = {}
+
+    def handler(req):
+        seen["path"] = req.url.path
+        seen["body"] = json.loads(req.content)
+        return httpx.Response(200, json={"done": True})
+
+    asyncio.run(ollama_with(handler).warm_up())
+    assert seen == {"path": "/api/generate", "body": {"model": "qwen3:8b", "keep_alive": "30m"}}  # không có prompt
+
+
+def test_mo_trang_thi_nap_san_nao(monkeypatch):
+    import app.main as main_module
+
+    calls = []
+    monkeypatch.setattr(main_module, "warm_llm_in_background", lambda llm: calls.append(llm))
+
+    def tags(req):
+        return httpx.Response(200, json={"models": [{"name": "qwen3:8b"}]})
+
+    def down(req):
+        raise httpx.ConnectError("refused", request=req)
+
+    monkeypatch.setenv("OLLAMA_MODEL", "qwen3:8b")
+    try:
+        llm = ollama_with(tags)
+        app.dependency_overrides[get_llm] = lambda: llm
+        TestClient(app).get("/api/health")
+        assert calls == [llm]
+        app.dependency_overrides[get_llm] = lambda: ollama_with(down)
+        TestClient(app).get("/api/health")
+        assert len(calls) == 1  # Ollama chưa chạy thì không cố nạp
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_dang_nap_thi_khong_nap_chong():
+    import app.main as main_module
+
+    class Slow:
+        model = "slow"
+
+        def __init__(self):
+            self.calls = 0
+            self.release = None
+
+        async def warm_up(self):
+            self.calls += 1
+            await self.release.wait()
+
+    async def run():
+        llm = Slow()
+        llm.release = asyncio.Event()
+        main_module.warm_llm_in_background(llm)
+        await asyncio.sleep(0)
+        main_module.warm_llm_in_background(llm)  # mở trang lần nữa khi đang nạp
+        await asyncio.sleep(0)
+        llm.release.set()
+        await asyncio.sleep(0.01)
+        main_module.warm_llm_in_background(llm)  # nạp xong rồi thì lần sau vẫn được gọi
+        await asyncio.sleep(0)
+        llm.release.set()
+        await asyncio.sleep(0.01)
+        return llm.calls
+
+    assert asyncio.run(run()) == 2

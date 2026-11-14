@@ -1,6 +1,7 @@
 <!--
 Sync Impact Report
-- Version change: (template) → 1.0.0
+- Version change: 1.0.0 → 1.0.1 (PATCH: đổi tên dự án thành "Mira – 3D Vietnamese Voice Companion", không đổi nguyên tắc)
+- Trước đó: (template) → 1.0.0
 - Principles added: I. Bộ não thay thế được; II. Độ trễ hội thoại là ưu tiên; III. Local-first & riêng tư;
   IV. Test không phụ thuộc dịch vụ thật; V. Đơn giản, không build step
 - Sections added: Ràng buộc kỹ thuật; Quy trình phát triển; Governance
@@ -8,7 +9,7 @@ Sync Impact Report
 - Deferred TODOs: none
 -->
 
-# Waifu Chat Constitution
+# Mira – 3D Vietnamese Voice Companion Constitution
 
 ## Core Principles
 
@@ -80,4 +81,4 @@ tăng phiên bản theo semver: MAJOR khi bỏ hoặc định nghĩa lại nguy�
 hoặc mục, PATCH khi chỉ sửa câu chữ. Mỗi plan MUST có mục "Constitution Check"; vi phạm phải được
 ghi lý do trong bảng Complexity Tracking hoặc sửa trước khi implement.
 
-**Version**: 1.0.0 | **Ratified**: 2026-11-13 | **Last Amended**: 2026-11-13
+**Version**: 1.0.1 | **Ratified**: 2026-11-13 | **Last Amended**: 2026-11-14

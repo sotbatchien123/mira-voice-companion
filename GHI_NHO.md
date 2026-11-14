@@ -1,4 +1,6 @@
-# GHI NHỚ DỰ ÁN — Waifu Chat
+# GHI NHỚ DỰ ÁN — Mira – 3D Vietnamese Voice Companion
+
+(Đổi tên từ "Waifu Chat" ngày 14/11/2026. Thư mục vẫn là `Waifu_chat`, khóa localStorage vẫn `waifu-*` để không mất lịch sử/cài đặt.)
 
 ## Trạng thái hiện tại
 
@@ -81,6 +83,14 @@ Nguồn: trang chủ và `/privacy` (bản sửa 2026-09-07). Họ không công 
 - Định tuyến nhiều nhà cung cấp cloud (trái local-first).
 
 ## Nhật ký phiên
+
+### 2026-11-14 (lần 20): đổi tên + nạp sẵn model
+- Đổi tên thành **Mira – 3D Vietnamese Voice Companion**:
+  - Đổi ở README, `<title>`, FastAPI title, `pyproject` (`mira-voice-companion`), constitution 1.0.1 (PATCH).
+  - Giữ nguyên: thư mục `Waifu_chat`, khóa localStorage `waifu-*` (đổi thì mất lịch sử/cài đặt), các trích dẫn cũ trong spec 001 và nhật ký.
+- `ChatLLM.warm_up()`: Ollama gọi `/api/generate` không prompt để nạp model; Claude không làm gì. Server gọi lúc khởi động và mỗi lần `/api/health` (mở trang), chạy nền, không nạp chồng.
+- Đo thật sau khi nhả model: không nạp sẵn chữ đầu 4,57s; mở trang → model vào GPU sau 4,1s → chữ đầu 0,61s; health vẫn trả sau 0,09s.
+- Test 83 → 86.
 
 ### 2026-11-14 (lần 19): spec 004 trí nhớ dài hạn
 - **Spike** (`spikes/memory_extract.py`, qwen3:8b):

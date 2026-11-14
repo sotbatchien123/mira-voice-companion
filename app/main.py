@@ -130,18 +130,40 @@ async def _warm_up(label: str, engine: SpeechEngine | SpeechRecognizer) -> None:
         log.warning("nạp %s lúc khởi động thất bại", label, exc_info=True)
 
 
+_llm_warming: set[asyncio.Task] = set()  # giữ tham chiếu để task nền không bị dọn giữa chừng
+
+
+def warm_llm_in_background(llm: ChatLLM) -> None:
+    """Nạp sẵn "não" ở nền (gọi lúc khởi động và mỗi lần mở trang); đang nạp thì không gọi thêm."""
+    if _llm_warming:
+        return
+
+    async def run() -> None:
+        started = time.perf_counter()
+        try:
+            await llm.warm_up()
+            log.info("nạp sẵn %s mất %.1fs", llm.model, time.perf_counter() - started)
+        except Exception:
+            log.warning("nạp sẵn %s thất bại", llm.model, exc_info=True)  # /api/health sẽ báo lỗi rõ cho người dùng
+
+    task = asyncio.create_task(run())
+    _llm_warming.add(task)
+    task.add_done_callback(_llm_warming.discard)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Nạp sẵn giọng (VieNeu ~8s) và tai (Whisper ~2s) ở nền để lượt nói/nghe đầu không bị chậm
     app.state.warm_ups = [
         asyncio.create_task(_warm_up(label, engine))
-        for label, engine in (("giọng", get_tts()), ("Whisper", get_stt()))
+        for label, engine in (("giọng", get_tts()), ("tai", get_stt()))
         if engine is not None
     ]
+    warm_llm_in_background(get_llm())
     yield
 
 
-app = FastAPI(title="Waifu Chat", lifespan=lifespan)
+app = FastAPI(title="Mira – 3D Vietnamese Voice Companion", lifespan=lifespan)
 
 
 @app.get("/api/health")
@@ -152,6 +174,8 @@ async def health(
 ) -> dict:
     """`ok` = não đã sẵn sàng. Giọng và tai có trạng thái riêng để thiếu chúng không chặn chat."""
     problem = await llm.check()
+    if problem is None:
+        warm_llm_in_background(llm)  # trang vừa mở: nạp model ngay, để câu đầu không phải chờ
     if tts is None:
         voice = {"engine": None, "ok": False, "problem": "Giọng nói đang tắt (TTS_PROVIDER=none trong .env)."}
     else:

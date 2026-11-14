@@ -42,6 +42,10 @@ class ChatLLM(Protocol):
         """Kiểm tra nhanh, không tốn tiền: None nếu sẵn sàng, ngược lại là câu tiếng Việt nói cách khắc phục."""
         ...
 
+    async def warm_up(self) -> None:
+        """Chuẩn bị trước để câu trả lời đầu không chậm (vd nạp model vào GPU). Không tốn tiền."""
+        ...
+
 
 class ClaudeLLM:
     provider = "claude"
@@ -57,6 +61,9 @@ class ClaudeLLM:
         if self._client is None:
             self._client = anthropic.AsyncAnthropic()
         return self._client
+
+    async def warm_up(self) -> None:
+        pass  # API cloud luôn sẵn sàng; không gọi thử để khỏi tốn tiền
 
     async def check(self) -> str | None:
         # Chỉ xem có key chưa; không gọi API để mở trang không tốn tiền
@@ -168,6 +175,13 @@ class OllamaLLM:
             raise LLMError("Ollama phản hồi quá lâu (model quá nặng cho GPU, hoặc đang nạp lần đầu).") from err
         except httpx.HTTPError as err:
             raise LLMError(f"Mất kết nối với Ollama giữa chừng ({type(err).__name__}). Ollama còn chạy không?") from err
+
+    async def warm_up(self) -> None:
+        """Nạp model vào GPU trước: sau OLLAMA_KEEP_ALIVE (mặc định 30 phút) không dùng, Ollama nhả model ra và câu
+        đầu tiên phải chờ ~9s để nạp lại. /api/generate không kèm prompt chỉ nạp model, không sinh chữ."""
+        async with httpx.AsyncClient(base_url=self.base_url, timeout=httpx.Timeout(120.0, connect=3.0), transport=self._transport) as client:
+            res = await client.post("/api/generate", json={"model": self.model, "keep_alive": self.keep_alive})
+            res.raise_for_status()
 
     async def complete(self, messages: list[dict[str, str]], *, json_mode: bool = False, max_tokens: int = 256) -> str:
         payload: dict = {

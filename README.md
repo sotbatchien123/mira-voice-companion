@@ -1,6 +1,6 @@
 > **Quy định:** Đọc [GHI_NHO.md](GHI_NHO.md) trước khi làm việc với dự án, và cập nhật nó cuối mỗi phiên.
 
-# Waifu Chat
+# Mira – 3D Vietnamese Voice Companion
 
 Chatbot nhân vật anime 3D chạy trên trình duyệt: avatar VRM (Three.js + three-vrm), backend Python
 (FastAPI), biểu cảm đổi theo tag cảm xúc mà LLM chèn vào câu trả lời, nói thành tiếng bằng giọng tiếng Việt
@@ -106,7 +106,8 @@ Chi tiết: `specs/002-voice-tts/contracts/chat-sse.md`.
 - Câu trả lời dài giữ CPU bận tạo giọng (~0,45 giây cho mỗi giây audio).
 - Nghe giọng nói đo trên giọng người thật (FLEURS): sai ~9% số từ. Chưa đo bằng mic laptop của người dùng sau khi đổi sang Zipformer. Chế độ rảnh tay
   dựa vào khử tiếng vọng của trình duyệt: dùng tai nghe sẽ chắc ăn hơn.
-- Sau khi Ollama nghỉ (`OLLAMA_KEEP_ALIVE`, mặc định 30 phút) câu đầu tiên chậm ~9s vì phải nạp lại model vào GPU.
+- Sau khi Ollama nghỉ (`OLLAMA_KEEP_ALIVE`, mặc định 30 phút) model bị nhả khỏi GPU. App tự nạp lại ở nền lúc khởi động
+  và mỗi lần mở trang (~4s), nên nếu gửi tin ngay trong vài giây đầu thì câu đó vẫn chậm hơn (đo: 4,6s so với 0,6s).
 - Trí nhớ dài hạn chỉ lưu "điều đáng nhớ" do model 8B tự trích: đôi khi sót ý khi một câu có nhiều ý; sai thì xóa trong
   nút Trí nhớ. Lịch sử gửi model được cắt theo ~5000 ký tự để vừa ngữ cảnh 4096 token.
 - Chưa có animation ngoài idle tự sinh bằng code.
