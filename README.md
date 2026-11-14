@@ -5,7 +5,7 @@
 Chatbot nhân vật anime 3D chạy trên trình duyệt: avatar VRM (Three.js + three-vrm), backend Python
 (FastAPI), biểu cảm đổi theo tag cảm xúc mà LLM chèn vào câu trả lời, nói thành tiếng bằng giọng tiếng Việt
 chạy CPU (VieNeu-TTS, giọng Mỹ Duyên) và nhép miệng theo âm lượng giọng. Nói chuyện được bằng mic
-(Whisper `small` chạy CPU): giữ để nói, hoặc rảnh tay và ngắt lời Mira khi đang nói.
+(Zipformer-30M tiếng Việt chạy CPU): giữ để nói, hoặc rảnh tay và ngắt lời Mira khi đang nói.
 "Não" của nhân vật chọn được: **model local qua Ollama** (miễn phí, offline) hoặc **Claude API**.
 Không cần Node.js: thư viện frontend đã được vendor sẵn trong `web/vendor/`.
 
@@ -49,7 +49,7 @@ Test:
 | `web/avatar.js` | Scene 3D, nạp VRM, idle (thở, chớp mắt, lắc đầu), biểu cảm, miệng theo âm lượng giọng (hoặc giả lập) |
 | `web/audio_player.js` | Phát giọng theo từng mảnh PCM (Web Audio), đo âm lượng cho nhép miệng, dừng khi gửi tin mới |
 | `web/chat_client.js` | Đọc SSE từ server |
-| `app/stt.py` | Hợp đồng `SpeechRecognizer` + `WhisperSTT` (lọc câu Whisper bịa khi chỉ có tiếng ồn) |
+| `app/stt.py` | Hợp đồng `SpeechRecognizer` + `ZipformerSTT` (mặc định, có Silero VAD chặn im lặng) + `WhisperSTT` (dự phòng) |
 | `web/mic.js`, `web/mic_worklet.js` | Ghi âm PCM 16kHz, giữ để nói, rảnh tay (VAD theo năng lượng) |
 | `web/main.js` | Giao diện chat, nút giọng/mic/rảnh tay, ngắt lời Mira, lưu lịch sử vào localStorage |
 | `web/vendor/` | three.js 0.187 + three-vrm 3.5.5 (MIT, xem `VERSIONS.txt`) |
@@ -88,7 +88,10 @@ Chi tiết: `specs/002-voice-tts/contracts/chat-sse.md`.
   - `PIPER_LENGTH_SCALE`: `>1` đọc chậm hơn, `<1` nhanh hơn.
 
 - Nghe giọng nói:
-  - `STT_PROVIDER`: `whisper` (mặc định) hoặc `none`.
+  - `STT_PROVIDER`: `zipformer` (mặc định), `whisper` hoặc `none`.
+  - `ZIPFORMER_DIR`: thư mục model Zipformer-30M-RNNT-6000h (CC-BY-NC-ND-4.0, chỉ dùng cá nhân); mặc định `models/zipformer`,
+    tải bằng `uv run python scripts/get_stt_model.py`. Máy này dùng bản có sẵn của VoiceDeck ở `D:\voice_models\Zipformer-30M-RNNT-6000h`.
+  - Khi dùng Whisper:
   - `WHISPER_MODEL` (`small`), `WHISPER_DEVICE` (`cpu`; `cuda` cần cuBLAS/cuDNN + VRAM trống), `WHISPER_THREADS` (12).
 
 ## Giới hạn hiện tại
@@ -96,7 +99,7 @@ Chi tiết: `specs/002-voice-tts/contracts/chat-sse.md`.
 - Giọng chưa đổi theo cảm xúc của câu (VieNeu có tag `[cười]`… đang thử nghiệm, chưa dùng). Giọng riêng là spec 004
   (VieNeu bắt chước được giọng từ mẫu 3–8s).
 - Câu trả lời dài giữ CPU bận tạo giọng (~0,45 giây cho mỗi giây audio).
-- Nghe giọng nói đã thử bằng giọng tổng hợp và mic giả lập; chưa đo với mic laptop và giọng người thật. Chế độ rảnh tay
+- Nghe giọng nói đo trên giọng người thật (FLEURS): sai ~9% số từ. Chưa đo bằng mic laptop của người dùng sau khi đổi sang Zipformer. Chế độ rảnh tay
   dựa vào khử tiếng vọng của trình duyệt: dùng tai nghe sẽ chắc ăn hơn.
 - Sau khi Ollama nghỉ (`OLLAMA_KEEP_ALIVE`, mặc định 30 phút) câu đầu tiên chậm ~9s vì phải nạp lại model vào GPU.
 - Trí nhớ chỉ là 40 lượt chat gần nhất (lưu trong trình duyệt).

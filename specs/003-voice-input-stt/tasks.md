@@ -30,3 +30,12 @@
 ## Phase 5: Polish
 
 - [x] T011 README, GHI_NHO, contract; `uv run pytest`; commit
+
+## Phase 6: Bổ sung – Zipformer
+
+- [x] T012 So Zipformer với Whisper trên giọng người thật (`spikes/audio/bench_asr_compare.py`, `bench_stt_app.py`)
+- [x] T013 `sherpa-onnx`; `ZipformerSTT` (mặc định), `speech_only` (Silero VAD), `normalize_transcript`; `scripts/get_stt_model.py`
+- [x] T014 VAD trình duyệt theo VoiceDeck; tắt `noiseSuppression`
+- [x] T015 Test: chuẩn hóa chữ, thiếu model, VAD chặn im lặng (cả VAD thật), chỉ đưa đoạn có tiếng cho model
+- [x] T016 Kiểm chứng thật: FLEURS 40 câu WER 8,8% / 0,18s; `verify_stt.py` WER 0% / 27–36ms; im lặng, ồn, ù, gõ phím → rỗng.
+  Trình duyệt: giữ để nói 38ms khứ hồi; rảnh tay gửi đúng 1 tin; chen vào dừng 7 mảnh giọng Mira. **Chưa thử lại bằng mic thật.**

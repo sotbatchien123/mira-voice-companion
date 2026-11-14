@@ -108,3 +108,20 @@ Mẫu nghe thử: `out/vieneu/<tên giọng>.wav`.
   avg_logprob -0,28 → bộ lọc phải dựa vào no_speech_prob > 0,8 + danh sách câu bịa, không dựa vào logprob.
   Câu nói thật có no_speech_prob tới 0,58.
 - Qua HTTP (`scripts/verify_stt.py`, giọng Ngọc Huyền): 1,23–1,35s, WER trung bình 6%, 0 câu bịa từ im lặng/ồn/ù.
+
+## Bổ sung 2026-11-14: Zipformer-30M (từ dự án VoiceDeck) so với Whisper small
+
+`bench_asr_compare.py`. Zipformer: `hynt/Zipformer-30M-RNNT-6000h` int8 qua sherpa-onnx 8 luồng, model có sẵn ở
+`D:\voice_models\Zipformer-30M-RNNT-6000h` (license CC-BY-NC-ND-4.0: chỉ dùng cá nhân). Whisper: `WhisperSTT` của app.
+
+| Bộ dữ liệu | Zipformer WER | Whisper WER | Zipformer trễ | Whisper trễ |
+|---|---|---|---|---|
+| FLEURS vi_vn test, 40 câu người thật (TB 12,7s/câu)* | **9,2%** | 23,2% | **0,27s** (p95 0,44s) | 2,68s (p95 11,4s) |
+| 15 câu VieNeu 3 giọng (không có trong dữ liệu huấn luyện) | **2,9%** | 13% | **0,06s** | ~1,3s |
+
+\* FLEURS nằm trong danh sách dữ liệu huấn luyện của Zipformer (có thể phần train) → con số có thể lạc quan;
+bộ VieNeu xác nhận cùng kết luận.
+
+Zipformer ra chữ IN HOA, không dấu câu → cần chuẩn hóa trước khi hiển thị. Nạp 2,4s (Whisper 37,9s lần này).
+VoiceDeck còn: VAD năng lượng ngưỡng tối thiểu 0,008, cần ≥ 180ms tiếng nói mới tính, hết câu sau 0,7s im;
+ghi âm thô không lọc ồn.

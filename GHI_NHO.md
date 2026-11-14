@@ -13,7 +13,7 @@
   - Đo thật: audio đầu 0,53–0,61s, chữ đầu 0,13–0,15s, 0 lỗ hổng khi phát, VRAM không đổi.
   - Miệng nhép trên VRM thật đã kiểm chứng (T013). Người dùng chưa nghe bản chạy trong app.
 - `uv run pytest` hiện là **46/46 pass**.
-- **Nghe giọng nói (spec 003):** faster-whisper `small` int8 CPU 12 luồng (`app/stt.py`, `POST /api/stt` nhận PCM 16kHz). Nút "Giữ để nói" (hoặc giữ Space khi ô nhập trống), nút "Rảnh tay" (VAD năng lượng, nhớ lựa chọn, mic mở sau cú bấm đầu), người dùng nói thì Mira im. Đo: 1,23–1,35s/câu, WER 6%, 0 câu bịa. **Chưa thử mic thật/giọng người thật/loa ngoài.**
+- **Nghe giọng nói (spec 003):** mặc định **Zipformer-30M** (sherpa-onnx, CPU, model ở `D:\voice_models\Zipformer-30M-RNNT-6000h` của VoiceDeck), có Silero VAD chặn im lặng; Whisper `small` làm dự phòng. Nút "Giữ để nói" (hoặc giữ Space khi ô nhập trống), "Rảnh tay" (VAD theo VoiceDeck), người dùng nói thì Mira im. Đo: FLEURS người thật WER 8,8% / 0,18s. **Chưa thử lại mic thật sau khi đổi.**
 - **Git:** repo khởi tạo 2026-11-14, nhánh `main`. `.claude/settings.local.json`, `.env`, model, log không vào git.
 - **Đã kiểm chứng với qwen3:8b thật (spec 001):**
   - `uv run pytest` 20/20 pass (lúc đó).
@@ -80,6 +80,17 @@ Nguồn: trang chủ và `/privacy` (bản sửa 2026-09-07). Họ không công 
 - Định tuyến nhiều nhà cung cấp cloud (trái local-first).
 
 ## Nhật ký phiên
+
+### 2026-11-14 (lần 17): học từ VoiceDeck để nhận dạng tốt hơn
+- Người dùng thử mic thật: nghe được nhưng nhận dạng còn sai. Tham khảo dự án VoiceDeck của người dùng (`D:\VoiceDeck`; thư mục `OneDrive\Documents\Buds 3` chỉ còn shortcut).
+- VoiceDeck dùng Zipformer-30M-RNNT-6000h (tiếng Việt, sherpa-onnx, CPU). Model có sẵn ở `D:\voice_models\Zipformer-30M-RNNT-6000h`; bộ VietSuperSpeech đã bị xóa.
+- So trên giọng người thật (FLEURS, 40 câu): **Zipformer WER 9,2% / 0,27s** so với **Whisper 23,2% / 2,68s**. Trên 15 câu VieNeu: 2,9% so với 13%. Số liệu ở `spikes/audio/KET_QUA.md`.
+- Người dùng đồng ý → đã làm:
+  - `ZipformerSTT` mặc định, `.env` trỏ `ZIPFORMER_DIR` tới model của VoiceDeck.
+  - Phát hiện Zipformer cũng bịa 1 từ khi im lặng/ồn → thêm `speech_only` (Silero VAD của faster-whisper).
+  - VAD trình duyệt theo VoiceDeck; tắt `noiseSuppression`. Test 60 → 65.
+  - Đo: FLEURS WER 8,8% / 0,18s; `verify_stt` 0% / ~30ms; trình duyệt giữ để nói, rảnh tay, ngắt lời đều đúng.
+  - Bẫy khi test: mic giả phải tạo luồng mới mỗi lần `getUserMedia` (app dừng track khi tắt mic).
 
 ### 2026-11-14 (lần 16): git + spec 003 nghe giọng nói
 - `git init` (nhánh `main`), thêm `.claude/settings.local.json` vào `.gitignore`, dò bí mật trước khi commit: không có. Commit đầu `a858d35`.

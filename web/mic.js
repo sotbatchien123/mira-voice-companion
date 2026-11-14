@@ -5,7 +5,11 @@
  */
 const RATE = 16000;
 const PRE_ROLL_S = 0.3; // giữ lại một chút trước lúc phát hiện tiếng nói để không mất âm đầu
-const END_SILENCE_S = 0.8; // im lặng bao lâu thì coi là hết câu
+// VAD theo dự án VoiceDeck (chạy ổn với tai nghe Bluetooth): ngưỡng tối thiểu 0.008, nền nhiễu x3,
+// cần >= 0.18s tiếng nói mới tính là bắt đầu (bỏ qua tiếng gõ phím, tiếng cạch), im 0.7s là hết câu
+const END_SILENCE_S = 0.7;
+const MIN_THRESHOLD = 0.008;
+const START_SPEECH_S = 0.18;
 const MIN_SPEECH_S = 0.3;
 const MAX_SPEECH_S = 30;
 
@@ -30,9 +34,9 @@ export class MicRecorder {
     this.chunks = [];
     this.preRoll = [];
     this.inSpeech = false;
-    this.loudFrames = 0;
+    this.loudSeconds = 0;
     this.silence = 0;
-    this.noiseFloor = 0.01;
+    this.noiseFloor = 0.002;
   }
 
   get open() {
@@ -49,7 +53,8 @@ export class MicRecorder {
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({
         // khử tiếng vọng để mic không thu lại giọng Mira từ loa
-        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        // không bật lọc ồn: nó làm méo giọng, còn Zipformer được huấn luyện với dữ liệu có nhiễu (VoiceDeck cũng ghi thô)
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: false, autoGainControl: true },
       });
     } catch (err) {
       throw new MicError(
@@ -100,7 +105,7 @@ export class MicRecorder {
     this.manual = false;
     this.inSpeech = false;
     this.chunks = [];
-    this.loudFrames = 0;
+    this.loudSeconds = 0;
     this.silence = 0;
   }
 
@@ -121,20 +126,26 @@ export class MicRecorder {
     if (!this.handsFree) return;
 
     // Ngưỡng = nền nhiễu x3 (tự cân theo phòng), nâng lên khi Mira đang nói để không bắt giọng Mira lọt qua loa
-    const threshold = Math.max(0.015, this.noiseFloor * 3) * (this.isAssistantSpeaking() ? 2.5 : 1);
+    const threshold = Math.max(MIN_THRESHOLD, this.noiseFloor * 3) * (this.isAssistantSpeaking() ? 2.5 : 1);
     if (!this.inSpeech) {
-      if (rms < this.noiseFloor * 3) this.noiseFloor = this.noiseFloor * 0.95 + rms * 0.05;
-      this.loudFrames = rms > threshold ? this.loudFrames + 1 : 0;
-      if (this.loudFrames >= 2) {
+      if (rms >= threshold) {
+        this.loudSeconds += dur;
+      } else {
+        // nền nhiễu chỉ học từ khung yên tĩnh, và học chậm để một tiếng động không làm lệch ngưỡng
+        this.noiseFloor = 0.98 * this.noiseFloor + 0.02 * Math.min(rms, threshold);
+        this.loudSeconds = Math.max(0, this.loudSeconds - dur);
+      }
+      if (this.loudSeconds >= START_SPEECH_S) {
         this.inSpeech = true;
         this.silence = 0;
+        this.loudSeconds = 0;
         this.chunks = [...this.preRoll];
         this.onSpeechStart();
       }
       return;
     }
     this.chunks.push(frame);
-    this.silence = rms < threshold * 0.6 ? this.silence + dur : 0;
+    this.silence = rms < threshold * 0.8 ? this.silence + dur : 0;
     if (this.silence >= END_SILENCE_S || this.chunks.length * dur >= MAX_SPEECH_S) {
       this.inSpeech = false;
       this.finish();

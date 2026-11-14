@@ -72,3 +72,13 @@ Người dùng bật chế độ "Rảnh tay": app tự nghe, tự nhận ra lú
 
 - Trình duyệt Chromium/Edge trên Windows, có `getUserMedia` với `echoCancellation`.
 - Mic laptop; chất lượng thật phụ thuộc phòng và mic, không đo được tự động.
+
+## Bổ sung 2026-11-14: đổi sang Zipformer (học từ dự án VoiceDeck)
+
+Người dùng thử mic thật thấy Whisper còn nhận sai. Dự án VoiceDeck của người dùng dùng Zipformer-30M-RNNT-6000h
+(tiếng Việt, sherpa-onnx). Đo trên giọng người thật (FLEURS, 40 câu): Zipformer sai 9,2% / 0,27s, Whisper 23,2% / 2,68s.
+
+- **FR-008**: Engine mặc định MUST là Zipformer; Whisper giữ làm dự phòng (`STT_PROVIDER=whisper`).
+- **FR-009**: Trước khi nhận dạng MUST lọc bằng Silero VAD: Zipformer cũng đọc im lặng/tiếng ồn thành một từ ("Và", "Đây").
+- **FR-010**: VAD rảnh tay theo VoiceDeck (ngưỡng tối thiểu 0,008, cần ≥ 0,18s tiếng nói, hết câu sau 0,7s im);
+  ghi âm không bật lọc ồn của trình duyệt.

@@ -6,7 +6,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app, get_llm, get_stt
-from app.stt import SAMPLE_RATE, STTError, WhisperSTT, keep_segment, make_stt
+import numpy as np
+
+from app import stt as stt_module
+from app.stt import SAMPLE_RATE, STTError, WhisperSTT, ZipformerSTT, keep_segment, make_stt, normalize_transcript
 
 
 class FakeSTT:
@@ -111,6 +114,8 @@ def test_giu_cau_noi_that_ke_ca_khi_whisper_hoi_khong_chac():
 
 def test_chon_engine_nghe(monkeypatch):
     monkeypatch.delenv("STT_PROVIDER", raising=False)
+    assert isinstance(make_stt(), ZipformerSTT)  # mặc định: tiếng Việt, ít sai và nhanh hơn Whisper
+    monkeypatch.setenv("STT_PROVIDER", "whisper")
     assert isinstance(make_stt(), WhisperSTT)
     monkeypatch.setenv("WHISPER_THREADS", "6")
     monkeypatch.setenv("WHISPER_DEVICE", "cuda")
@@ -137,3 +142,66 @@ def test_health_bao_trang_thai_nghe():
     app.dependency_overrides[get_stt] = lambda: None
     ears = client.get("/api/health").json()["stt"]
     assert ears["engine"] is None and ears["ok"] is False
+
+
+# ---------- Zipformer ----------
+
+def test_chuan_hoa_chu_in_hoa_cua_zipformer():
+    assert normalize_transcript("CHÀO EM  HÔM NAY EM THẾ NÀO") == "Chào em hôm nay em thế nào"
+    assert normalize_transcript("   ") == ""
+
+
+def test_zipformer_thieu_model_bao_cach_tai(tmp_path, monkeypatch):
+    monkeypatch.setenv("ZIPFORMER_DIR", str(tmp_path))
+    engine = ZipformerSTT()
+    problem = engine.check()
+    assert "get_stt_model.py" in problem and "ZIPFORMER_DIR" in problem
+    with pytest.raises(STTError, match="get_stt_model"):
+        engine.transcribe(pcm(1.0))
+
+
+class FakeRecognizer:
+    """Thay sherpa-onnx: ghi lại audio nhận được, trả chữ IN HOA như Zipformer thật."""
+
+    def __init__(self, text):
+        self.text, self.audio = text, None
+
+    def create_stream(self):
+        rec = self
+
+        class Stream:
+            result = type("R", (), {"text": rec.text})()
+
+            def accept_waveform(self, rate, audio):
+                rec.audio = (rate, audio)
+
+        return Stream()
+
+    def decode_stream(self, stream):
+        pass
+
+
+def test_zipformer_chi_nhan_dang_doan_co_tieng_noi(monkeypatch):
+    engine = ZipformerSTT()
+    engine._recognizer = FakeRecognizer("MIRA ƠI HÔM NAY EM CÓ VUI KHÔNG")
+    # VAD cắt lấy đoạn có tiếng nói: chỉ phần đó được đưa cho model
+    monkeypatch.setattr(stt_module, "speech_only", lambda audio: audio[100:200])
+    assert engine.transcribe(pcm(1.0)) == "Mira ơi hôm nay em có vui không"
+    rate, audio = engine._recognizer.audio
+    assert rate == SAMPLE_RATE and len(audio) == 100
+
+
+def test_zipformer_khong_co_tieng_noi_thi_khong_doan(monkeypatch):
+    # Đo thật: không chặn thì Zipformer đọc im lặng/tiếng ồn thành "Và", "Đây", "Tôi"
+    engine = ZipformerSTT()
+    engine._recognizer = FakeRecognizer("VÀ")
+    monkeypatch.setattr(stt_module, "speech_only", lambda audio: audio[:0])
+    assert engine.transcribe(pcm(1.0)) == ""
+    assert engine._recognizer.audio is None  # không gọi model
+
+
+def test_vad_that_bo_im_lang_va_tieng_on():
+    # Silero VAD thật (đi kèm faster-whisper, không cần mạng): im lặng và nhiễu trắng không có tiếng nói
+    rng = np.random.default_rng(0)
+    assert stt_module.speech_only(np.zeros(SAMPLE_RATE * 2, dtype=np.float32)).size == 0
+    assert stt_module.speech_only(rng.normal(0, 0.05, SAMPLE_RATE * 2).astype(np.float32)).size == 0
