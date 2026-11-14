@@ -17,6 +17,7 @@
 - `uv run pytest` hiện là **46/46 pass**.
 - **Nghe giọng nói (spec 003):** mặc định **Zipformer-30M** (sherpa-onnx, CPU, model ở `D:\voice_models\Zipformer-30M-RNNT-6000h` của VoiceDeck), có Silero VAD chặn im lặng; Whisper `small` làm dự phòng. Nút "Giữ để nói" (hoặc giữ Space khi ô nhập trống), "Rảnh tay" (VAD theo VoiceDeck), người dùng nói thì Mira im. Đo: FLEURS người thật WER 8,8% / 0,18s. **Chưa thử lại mic thật sau khi đổi.**
 - **Trí nhớ dài hạn (spec 004):** `app/memory.py`, `data/memory.json` (gitignored). Model chỉ đề xuất điều mới + loại; code tự thay theo loại (tên, tuổi, nghề, nơi ở, cách gọi) và ghi ngày nói. System prompt có ngày giờ + điều đã nhớ. Lịch sử cắt theo 5000 ký tự. Nút "Trí nhớ" xem/xóa. Kiểm chứng thật đạt hết (`scripts/verify_memory.py`).
+- **Mira chủ động (spec 006):** `app/presence.py`, `POST /api/proactive {kind: greet|checkin}` (204 nếu chưa đến lúc). Chào khi mở trang nếu vắng ≥ 30 phút; hỏi thăm 1 lần khi im ≥ 10 phút (trang hiện, không bận). Mốc thời gian trong trí nhớ được code đổi thành ngày + nhãn đã diễn ra/hôm nay/sắp tới.
 - **Git:** repo khởi tạo 2026-11-14, nhánh `main`. `.claude/settings.local.json`, `.env`, model, log không vào git.
 - **Đã kiểm chứng với qwen3:8b thật (spec 001):**
   - `uv run pytest` 20/20 pass (lúc đó).
@@ -83,6 +84,21 @@ Nguồn: trang chủ và `/privacy` (bản sửa 2026-09-07). Họ không công 
 - Định tuyến nhiều nhà cung cấp cloud (trái local-first).
 
 ## Nhật ký phiên
+
+### 2026-11-14 (lần 22): spec 006 Mira chủ động
+- **Spike** `spikes/proactive_prompt.py`:
+  - Thiếu buổi thì model nói "trưa rồi" lúc 15:00 → `today_line` có buổi.
+  - Lộ "ứng dụng" → cấm trong prompt. Hỏi thăm mà chào lại → dặn rõ.
+- **Backend:**
+  - `app/presence.py`; `/api/proactive`; `reply_stream()` dùng chung cho chat và lời chủ động (lời chủ động không trích trí nhớ).
+  - `trim_history` gộp lượt cùng vai và thêm "(anh mở trang)" khi lịch sử bắt đầu bằng Mira (chỉ khi không bị cắt).
+  - Health thêm `proactive`.
+- **Frontend:** `runMiraTurn()` dùng chung; chào khi mở trang (chỉ chữ nếu chưa được phát âm thanh); hỏi thăm theo `setInterval`, bỏ qua khi bận/tab ẩn.
+- **Kiểm chứng thật** (data thử, đã dọn): chào sau 2 ngày vắng, tải lại không chào, đúng 1 lần hỏi thăm.
+- **Lỗi bắt được khi chạy thật:**
+  - Model sai ngày dù có "N ngày trước" → `resolve_relative_dates` + `event_status` (code tính ngày).
+  - Hỏi thăm 2 lần → chỉ hoạt động của người dùng mới cho hỏi thăm lại.
+- Test 87 → 103. `.env` đặt `PROACTIVE_CHECKIN_MINUTES=10`; đã xóa `data/presence.json` và trí nhớ thử.
 
 ### 2026-11-14 (lần 21): spec 005 Mira sinh động hơn
 - `web/lipsync.js`: `mainVowel` (bỏ dấu thanh, giữ â/ă/ơ…; bỏ âm đệm qu/gi/o-u, iê/yê → ê), `syllableVisemes`, `SyllableTracker` (âm lượng tụt rồi vọt = âm tiết mới).

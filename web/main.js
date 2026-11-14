@@ -121,30 +121,19 @@ $("clear-btn").addEventListener("click", () => {
   avatar.setEmotion("neutral");
 });
 
-form.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const text = input.value.trim();
-  if (!text) return;
-  if (inFlight) {
-    // Chữ của lượt trước đã xong (chỉ còn đang tạo/đọc giọng) thì cho ngắt lời; còn đang viết chữ thì chờ
-    if (!inFlight.textSaved) return;
-    inFlight.controller.abort();
-  }
-  input.value = "";
-
-  addBubble("user", text);
-  history.push({ role: "user", content: text });
-  saveHistory();
-
-  const bubble = addBubble("assistant", "…");
+/**
+ * Một lượt Mira nói: hiện chữ dần, phát giọng, lưu vào lịch sử. Dùng chung cho trả lời tin nhắn và lời Mira tự nói.
+ * @returns {Promise<boolean>} true nếu Mira đã nói (false khi server báo chưa đến lúc hoặc lỗi)
+ */
+async function runMiraTurn({ url = "/api/chat", extra = {}, speak, pending = true }) {
+  let bubble = pending ? addBubble("assistant", "…") : null; // lời tự nói: chỉ hiện bong bóng khi có chữ thật
   let shown = "";
   const turn = (inFlight = { controller: new AbortController(), textSaved: false });
   const { controller } = turn;
-  const speak = voiceOn;
   let voiceFailed = false;
   sendBtn.disabled = true;
   player.stop(); // câu cũ đang đọc dở thì dừng
-  if (speak) player.unlock(); // đang trong cú bấm của người dùng nên trình duyệt cho phát âm thanh
+  if (speak) player.unlock();
   avatar.setTalking(!speak);
   const saveReply = (raw) => {
     if (turn.textSaved) return;
@@ -152,6 +141,7 @@ form.addEventListener("submit", async (e) => {
     history.push({ role: "assistant", content: raw });
     saveHistory();
     sendBtn.disabled = false;
+    lastActivity = Date.now(); // đếm lại khoảng im từ lúc Mira nói xong, nhưng KHÔNG cho hỏi thăm lần nữa
   };
   try {
     const raw = await streamChat(
@@ -159,6 +149,7 @@ form.addEventListener("submit", async (e) => {
       {
         onText: (t) => {
           shown += t;
+          bubble ??= addBubble("assistant", "…");
           bubble.textContent = shown.trimStart() || "…";
           log.scrollTop = log.scrollHeight;
         },
@@ -173,27 +164,81 @@ form.addEventListener("submit", async (e) => {
         },
         onTextDone: saveReply,
       },
-      { voice: speak, signal: controller.signal },
+      { voice: speak, signal: controller.signal, url, extra },
     );
+    if (raw === null) {
+      bubble?.remove();
+      return false;
+    }
     saveReply(raw);
+    return true;
   } catch (err) {
     // Bị ngắt sau khi chữ đã lưu (người dùng gửi tin mới lúc Mira còn nói): giữ nguyên câu trả lời
     if (!turn.textSaved) {
-      bubble.remove();
-      if (!controller.signal.aborted) addBubble("error", err.message);
+      bubble?.remove();
+      if (!controller.signal.aborted && pending) addBubble("error", err.message);
       // Bỏ lượt user chưa có trả lời để lịch sử luôn xen kẽ user/assistant
-      if (history.at(-1)?.role === "user") history.pop();
+      if (url === "/api/chat" && history.at(-1)?.role === "user") history.pop();
       saveHistory();
     }
+    return false;
   } finally {
     if (inFlight === turn) {
       inFlight = null;
       sendBtn.disabled = false;
       avatar.setTalking(false);
-      input.focus();
+      if (pending) input.focus();
     }
   }
+}
+
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const text = input.value.trim();
+  if (!text) return;
+  if (inFlight) {
+    // Chữ của lượt trước đã xong (chỉ còn đang tạo/đọc giọng) thì cho ngắt lời; còn đang viết chữ thì chờ
+    if (!inFlight.textSaved) return;
+    inFlight.controller.abort();
+  }
+  input.value = "";
+  markActivity();
+  addBubble("user", text);
+  history.push({ role: "user", content: text });
+  saveHistory();
+  // đang trong cú bấm/phím của người dùng nên trình duyệt cho phát âm thanh
+  await runMiraTurn({ speak: voiceOn });
 });
+
+// ---------- Mira chủ động: chào khi mở trang, hỏi thăm khi im lâu ----------
+
+let lastActivity = Date.now();
+let checkedIn = false; // đã hỏi thăm trong khoảng im này chưa
+let checkinMinutes = 0;
+
+/** Người dùng có hoạt động (gõ, gửi, nói): đếm lại khoảng im và cho phép hỏi thăm lần sau. */
+function markActivity() {
+  lastActivity = Date.now();
+  checkedIn = false;
+}
+
+/** Mira tự nói. Trình duyệt chưa cho phát âm thanh (chưa bấm gì) thì nói bằng chữ + miệng giả lập. */
+function askMira(kind) {
+  return runMiraTurn({ url: "/api/proactive", extra: { kind }, speak: voiceOn && player.unlocked, pending: false });
+}
+
+function userIsBusy() {
+  return Boolean(inFlight || player.playing || mic.manual || mic.inSpeech || input.value.trim() || document.hidden);
+}
+
+setInterval(async () => {
+  if (!checkinMinutes || checkedIn || userIsBusy()) return;
+  if (Date.now() - lastActivity < checkinMinutes * 60_000) return;
+  checkedIn = true; // một lần cho mỗi khoảng im, dù server có trả 204
+  await askMira("checkin");
+}, 15_000);
+
+input.addEventListener("input", markActivity);
 
 // Báo sớm nếu "não" chưa sẵn sàng (Ollama chưa bật, chưa pull model, thiếu key) thay vì đợi gửi tin mới biết
 async function checkBrain() {
@@ -206,6 +251,9 @@ async function checkBrain() {
     handsFreeBtn.disabled = true;
     micBtn.title = health.stt.problem;
   }
+  checkinMinutes = health.proactive?.checkin_minutes ?? 0;
+  // Server tự quyết có nên chào không (vắng đủ lâu, chưa chào gần đây); không thì trả 204 và không hiện gì
+  if (health.ok && health.proactive?.greeting) await askMira("greet");
 }
 
 // ---------- Nghe giọng nói (STT) ----------
@@ -219,6 +267,7 @@ const mic = new MicRecorder({
   onSpeechStart: () => {
     interruptMira();
     avatar.setListening(true);
+    markActivity();
   },
   onSpeechEnd: () => avatar.setListening(false),
   onUtterance: (pcm) => transcribeAndSend(pcm),

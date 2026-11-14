@@ -8,16 +8,22 @@
  *   onVoiceError?: (message: string) => void,
  *   onTextDone?: (raw: string) => void,
  * }} handlers
- * @param {{voice?: boolean, signal?: AbortSignal}} [options]
- * @returns {Promise<string>} câu trả lời gốc (còn tag) để lưu vào lịch sử
+ * @param {{voice?: boolean, signal?: AbortSignal, url?: string, extra?: object}} [options]
+ *   url/extra: dùng cho lời Mira tự nói (/api/proactive, {kind}).
+ * @returns {Promise<string | null>} câu trả lời gốc (còn tag) để lưu lịch sử; null nếu server báo chưa đến lúc (204)
  */
-export async function streamChat(messages, { onText, onEmotion, onAudio, onVoiceError, onTextDone }, { voice = false, signal } = {}) {
-  const res = await fetch("/api/chat", {
+export async function streamChat(
+  messages,
+  { onText, onEmotion, onAudio, onVoiceError, onTextDone },
+  { voice = false, signal, url = "/api/chat", extra = {} } = {},
+) {
+  const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages, voice }),
+    body: JSON.stringify({ ...extra, messages, voice }),
     signal,
   });
+  if (res.status === 204) return null;
   if (!res.ok || !res.body) {
     const detail = await res.json().catch(() => null);
     const msg = Array.isArray(detail?.detail) ? detail.detail[0]?.msg : detail?.detail;

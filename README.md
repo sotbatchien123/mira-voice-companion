@@ -6,7 +6,8 @@ Chatbot nhân vật anime 3D chạy trên trình duyệt: avatar VRM (Three.js +
 (FastAPI), biểu cảm đổi theo tag cảm xúc mà LLM chèn vào câu trả lời, nói thành tiếng bằng giọng tiếng Việt
 chạy CPU (VieNeu-TTS, giọng Mỹ Duyên) và nhép miệng theo âm lượng giọng. Nói chuyện được bằng mic
 (Zipformer-30M tiếng Việt chạy CPU): giữ để nói, hoặc rảnh tay và ngắt lời Mira khi đang nói. Mira nhớ điều anh kể qua nhiều ngày
-(trí nhớ dài hạn, lưu ở máy, xem/xóa được trong nút **Trí nhớ**).
+(trí nhớ dài hạn, lưu ở máy, xem/xóa được trong nút **Trí nhớ**). Mira chủ động: tự chào khi anh quay lại và
+hỏi thăm một lần khi anh im lâu.
 "Não" của nhân vật chọn được: **model local qua Ollama** (miễn phí, offline) hoặc **Claude API**.
 Không cần Node.js: thư viện frontend đã được vendor sẵn trong `web/vendor/`.
 
@@ -53,6 +54,7 @@ Test:
 | `web/audio_player.js` | Phát giọng theo từng mảnh PCM (Web Audio), đo âm lượng cho nhép miệng, dừng khi gửi tin mới |
 | `web/chat_client.js` | Đọc SSE từ server |
 | `app/memory.py` | Trí nhớ dài hạn: kho `data/memory.json`, luật thay/cộng theo loại, trích xuất bằng LLM, dựng system prompt có ngày giờ |
+| `app/presence.py` | Mira chủ động: lần nói cuối/lần chào cuối (`data/presence.json`), khi nào chào/hỏi thăm, lời nhắc ẩn cho model |
 | `app/stt.py` | Hợp đồng `SpeechRecognizer` + `ZipformerSTT` (mặc định, có Silero VAD chặn im lặng) + `WhisperSTT` (dự phòng) |
 | `web/mic.js`, `web/mic_worklet.js` | Ghi âm PCM 16kHz, giữ để nói, rảnh tay (VAD theo năng lượng) |
 | `web/main.js` | Giao diện chat, nút giọng/mic/rảnh tay, ngắt lời Mira, lưu lịch sử vào localStorage |
@@ -100,7 +102,12 @@ Chi tiết: `specs/002-voice-tts/contracts/chat-sse.md`.
 
 - Trí nhớ: `MEMORY_ENABLED` (`true` mặc định). Dữ liệu ở `data/memory.json`, không vào git.
 
+- Mira chủ động: `PROACTIVE_GREETING` (true), `GREET_MIN_GAP_MINUTES` (30), `PROACTIVE_CHECKIN_MINUTES` (10, 0 = tắt).
+
 ## Giới hạn hiện tại
+
+- Lời chào khi mở trang chỉ có chữ nếu trình duyệt chưa cho phát âm thanh (chưa bấm gì vào trang).
+- Model 8B đôi khi tự thêm chi tiết nhỏ khi chào/hỏi thăm dù đã dặn không bịa.
 
 - Giọng chưa đổi theo cảm xúc của câu (VieNeu có tag `[cười]`… đang thử nghiệm, chưa dùng). Giọng riêng là spec 004
   (VieNeu bắt chước được giọng từ mẫu 3–8s).

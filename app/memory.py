@@ -14,7 +14,7 @@ import threading
 import unicodedata
 import uuid
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from .persona import SYSTEM_PROMPT
@@ -111,17 +111,95 @@ class MemoryStore:
             self._write()
 
 
+def part_of_day(now: datetime) -> str:
+    """Ghi rõ buổi: spike cho thấy chỉ có giờ thì model 8B nói "trưa rồi" lúc 15:00."""
+    h = now.hour
+    if 4 <= h < 10:
+        return "buổi sáng"
+    if 10 <= h < 13:
+        return "buổi trưa"
+    if 13 <= h < 18:
+        return "buổi chiều"
+    if 18 <= h < 22:
+        return "buổi tối"
+    return "đêm khuya"
+
+
 def today_line(now: datetime) -> str:
-    return f"Bây giờ là {now:%H:%M}, {WEEKDAYS[now.weekday()]} ngày {now:%d/%m/%Y}."
+    return f"Bây giờ là {now:%H:%M} ({part_of_day(now)}), {WEEKDAYS[now.weekday()]} ngày {now:%d/%m/%Y}."
 
 
-def render_memory(facts: list[Fact], limit: int = MEMORY_PROMPT_CHARS) -> str:
+_DAY_NAMES = {"hai": 0, "ba": 1, "tư": 2, "năm": 3, "sáu": 4, "bảy": 5}
+_WEEKDAY_RE = re.compile(r"(thứ (hai|ba|tư|năm|sáu|bảy)|chủ nhật) (tuần sau|tuần tới|này)", re.IGNORECASE)
+_SIMPLE_DAYS = {"hôm kia": -2, "hôm qua": -1, "hôm nay": 0, "ngày mai": 1, "ngày kia": 2, "ngày mốt": 2}
+_SIMPLE_RE = re.compile("|".join(_SIMPLE_DAYS), re.IGNORECASE)
+_NEXT_WEEK_RE = re.compile(r"tuần (sau|tới)", re.IGNORECASE)
+
+
+def resolve_relative_dates(text: str, said_on: str) -> str:
+    """Đổi "ngày mai", "hôm qua", "thứ Bảy tuần sau"... thành ngày cụ thể, tính từ ngày anh nói.
+
+    Đo thật: dù prompt ghi "anh nói 2 ngày trước", model 8B vẫn hỏi "hôm nay anh đi phỏng vấn à?" cho một sự kiện
+    "ngày mai" đã qua. Cộng trừ ngày là việc của code, không phải của model."""
+    base = datetime.strptime(said_on, "%Y-%m-%d")
+
+    def weekday(m: re.Match[str]) -> str:
+        idx = 6 if m.group(1).lower() == "chủ nhật" else _DAY_NAMES[m.group(2).lower()]
+        monday = base - timedelta(days=base.weekday())
+        if m.group(3).lower() != "này":
+            monday += timedelta(days=7)
+        day = monday + timedelta(days=idx)
+        return f"{m.group(1)} ngày {day:%d/%m/%Y}"
+
+    def simple(m: re.Match[str]) -> str:
+        return f"ngày {base + timedelta(days=_SIMPLE_DAYS[m.group(0).lower()]):%d/%m/%Y}"
+
+    def next_week(m: re.Match[str]) -> str:
+        monday = base - timedelta(days=base.weekday()) + timedelta(days=7)
+        return f"tuần bắt đầu ngày {monday:%d/%m/%Y}"
+
+    text = _WEEKDAY_RE.sub(weekday, text)
+    text = _SIMPLE_RE.sub(simple, text)
+    return _NEXT_WEEK_RE.sub(next_week, text)
+
+
+_DATE_RE = re.compile(r"(\d{2})/(\d{2})/(\d{4})")
+
+
+def event_status(text: str, today: datetime | None) -> str:
+    """Gắn nhãn đã diễn ra / hôm nay / sắp tới cho điều có ngày cụ thể. Đo thật: câu "Anh sắp đi phỏng vấn vào ngày
+    13/11" khiến model vẫn nói "sắp" vào ngày 14/11; so ngày là việc của code."""
+    dates = [datetime(int(y), int(m), int(d)).date() for d, m, y in _DATE_RE.findall(text)]
+    if today is None or not dates:
+        return ""
+    last = max(dates)
+    if last < today.date():
+        return " (đã diễn ra)"
+    if last == today.date():
+        return " (là hôm nay)"
+    return " (sắp tới)"
+
+
+def said_when(said_on: str, today: datetime | None) -> str:
+    """"hôm nay" / "hôm qua" / "7 ngày trước": spike cho thấy chỉ có ngày thì model không tự tính được đã bao lâu."""
+    day = datetime.strptime(said_on, "%Y-%m-%d")
+    if today is None:
+        return f"anh nói ngày {day:%d/%m/%Y}"
+    ago = (today.date() - day.date()).days
+    if ago <= 0:
+        return f"anh nói hôm nay, {day:%d/%m/%Y}"
+    if ago == 1:
+        return f"anh nói hôm qua, {day:%d/%m/%Y}"
+    return f"anh nói {ago} ngày trước, ngày {day:%d/%m/%Y}"
+
+
+def render_memory(facts: list[Fact], limit: int = MEMORY_PROMPT_CHARS, today: datetime | None = None) -> str:
     """Danh sách điều đã nhớ cho system prompt: điều cơ bản trước, rồi điều mới nhất; cắt theo giới hạn ký tự."""
     ordered = [f for f in facts if f.kind in SINGLE_VALUE] + [f for f in reversed(facts) if f.kind not in SINGLE_VALUE]
     lines, used = [], 0
     for f in ordered:
-        day = datetime.strptime(f.said_on, "%Y-%m-%d").strftime("%d/%m/%Y")
-        line = f"- {f.text} (anh nói ngày {day})"
+        text = resolve_relative_dates(f.text, f.said_on)
+        line = f"- {text}{event_status(text, today)} ({said_when(f.said_on, today)})"
         if used + len(line) > limit:
             break
         lines.append(line)
@@ -131,7 +209,7 @@ def render_memory(facts: list[Fact], limit: int = MEMORY_PROMPT_CHARS) -> str:
 
 def system_prompt(now: datetime, facts: list[Fact]) -> str:
     parts = [SYSTEM_PROMPT, "", today_line(now)]
-    memory = render_memory(facts)
+    memory = render_memory(facts, today=now)
     if memory:
         parts += ["", "Những điều em đã biết về anh (từ các lần trò chuyện trước). Chỉ nhắc khi liên quan, đừng kể lể; "
                       "không suy ra hay bịa thêm điều gì ngoài danh sách này:", memory]

@@ -113,9 +113,21 @@ def test_prompt_trich_xuat_kem_dieu_da_biet(store):
 def test_system_prompt_co_ngay_gio_va_dieu_da_nho(store):
     store.add([("ten", "Anh tên là Khoa"), ("su_kien", "Anh đi phỏng vấn FPT thứ Bảy tuần sau")], "2026-11-14")
     prompt = system_prompt(NOW, store.facts())
-    assert "21:30, thứ Bảy ngày 14/11/2026" in prompt
-    assert "- Anh tên là Khoa (anh nói ngày 14/11/2026)" in prompt
-    assert "Anh đi phỏng vấn FPT thứ Bảy tuần sau (anh nói ngày 14/11/2026)" in prompt
+    assert "21:30 (buổi tối), thứ Bảy ngày 14/11/2026" in prompt
+    assert "- Anh tên là Khoa (anh nói hôm nay, 14/11/2026)" in prompt
+    # mốc tương đối được đổi thành ngày cụ thể (14/11 là thứ Bảy -> thứ Bảy tuần sau là 21/11)
+    assert "Anh đi phỏng vấn FPT thứ Bảy ngày 21/11/2026 (sắp tới) (anh nói hôm nay, 14/11/2026)" in prompt
+
+
+def test_ghi_ro_buoi_va_da_bao_lau():
+    from app.memory import Fact, part_of_day
+
+    assert [part_of_day(datetime(2026, 11, 14, h)) for h in (7, 11, 15, 20, 1)] == [
+        "buổi sáng", "buổi trưa", "buổi chiều", "buổi tối", "đêm khuya"]
+    facts = [Fact("1", "su_kien", "Anh đi phỏng vấn FPT thứ Bảy tuần sau", "2026-11-07"),
+             Fact("2", "so_thich", "Anh thích phở", "2026-11-13")]
+    text = render_memory(facts, today=NOW)
+    assert "(anh nói 7 ngày trước, ngày 07/11/2026)" in text and "(anh nói hôm qua, 13/11/2026)" in text
 
 
 def test_khong_co_tri_nho_thi_khong_them_muc_tri_nho():
@@ -200,3 +212,32 @@ def test_remember_bo_qua_tin_ngan(store):
     import asyncio
 
     assert asyncio.run(_remember_skips_short(store))["skipped"] is True
+
+
+def test_doi_moc_thoi_gian_tuong_doi_thanh_ngay():
+    from app.memory import resolve_relative_dates
+
+    # nói ngày thứ Bảy 07/11/2026
+    assert resolve_relative_dates("Anh đi phỏng vấn ở FPT vào thứ Bảy tuần sau", "2026-11-07") ==         "Anh đi phỏng vấn ở FPT vào thứ Bảy ngày 14/11/2026"
+    assert resolve_relative_dates("Anh sắp đi phỏng vấn vào ngày mai", "2026-11-12") == "Anh sắp đi phỏng vấn vào ngày 13/11/2026"
+    assert resolve_relative_dates("Hôm qua anh bị ốm", "2026-11-12") == "ngày 11/11/2026 anh bị ốm"
+    assert resolve_relative_dates("Chủ nhật này anh về quê", "2026-11-12") == "Chủ nhật ngày 15/11/2026 anh về quê"
+    assert resolve_relative_dates("Tuần sau anh thi", "2026-11-12") == "tuần bắt đầu ngày 16/11/2026 anh thi"
+    assert resolve_relative_dates("Anh thích mèo", "2026-11-12") == "Anh thích mèo"  # không có mốc thời gian
+
+
+def test_prompt_dung_ngay_cu_the_cho_su_kien():
+    from app.memory import Fact
+
+    facts = [Fact("1", "su_kien", "Anh sắp đi phỏng vấn ở FPT vào ngày mai", "2026-11-12")]
+    assert ("Anh sắp đi phỏng vấn ở FPT vào ngày 13/11/2026 (đã diễn ra) (anh nói 2 ngày trước, ngày 12/11/2026)"
+            in system_prompt(NOW, facts))
+
+
+def test_nhan_da_dien_ra_hom_nay_sap_toi():
+    from app.memory import event_status
+
+    assert event_status("Anh thi vào ngày 13/11/2026", NOW) == " (đã diễn ra)"
+    assert event_status("Anh thi vào ngày 14/11/2026", NOW) == " (là hôm nay)"
+    assert event_status("Anh thi vào ngày 20/11/2026", NOW) == " (sắp tới)"
+    assert event_status("Anh thích mèo", NOW) == ""

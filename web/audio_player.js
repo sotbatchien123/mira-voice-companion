@@ -35,6 +35,11 @@ export class AudioPlayer {
     return this.sources.size > 0;
   }
 
+  /** Trình duyệt đã cho phát âm thanh chưa (cần ít nhất một cú bấm của người dùng). */
+  get unlocked() {
+    return this.ctx?.state === "running";
+  }
+
   /** @param {{part: number, rate: number, pcm: string, text?: string, emotion?: string | null}} chunk */
   enqueue(chunk) {
     this.unlock();

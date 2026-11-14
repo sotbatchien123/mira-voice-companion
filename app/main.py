@@ -12,7 +12,7 @@ import json
 import logging
 import threading
 import time
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import asynccontextmanager
 from datetime import datetime
 from functools import lru_cache
@@ -22,13 +22,14 @@ from typing import Literal
 import numpy as np
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
 from .emotion_tags import EmotionTagParser, ParsedChunk
 from .llm import ChatLLM, LLMError, make_llm
 from .memory import MemoryStore, make_memory, remember, system_prompt
+from .presence import Presence, proactive_prompt
 from .speech_text import SpeechSegmenter, clean_for_speech
 from .stt import SAMPLE_RATE, SpeechRecognizer, STTError, make_stt
 from .tts import SpeechEngine, TTSError, make_tts
@@ -75,9 +76,22 @@ def trim_history(turns: list[ChatTurn], char_budget: int = HISTORY_CHAR_BUDGET) 
             break  # lượt cuối (tin vừa gửi) luôn được giữ
         recent.insert(0, turn)
         used += len(turn.content)
-    while recent and recent[0].role != "user":
-        recent = recent[1:]
-    return [t.model_dump() for t in recent]
+    turns_out: list[dict[str, str]] = []
+    for t in recent:
+        # Hai lượt liền nhau cùng vai (vd Mira chào rồi hỏi thăm khi anh chưa trả lời): gộp lại, vì Claude bắt buộc
+        # user/assistant luân phiên
+        if turns_out and turns_out[-1]["role"] == t.role:
+            turns_out[-1]["content"] += "\n" + t.content
+        else:
+            turns_out.append(t.model_dump())
+    if turns_out and turns_out[0]["role"] != "user":
+        if len(recent) < len(turns):
+            turns_out = turns_out[1:]  # bị cắt giữa chừng: bỏ lượt Mira mồ côi ở đầu như trước
+        else:
+            # Cả cuộc trò chuyện bắt đầu bằng lời Mira (chào khi mở trang): giữ lại để model biết mình đã hỏi gì,
+            # thêm một lượt mở đầu ngắn cho đúng luân phiên
+            turns_out.insert(0, {"role": "user", "content": "(anh mở trang)"})
+    return turns_out
 
 
 @lru_cache
@@ -98,6 +112,11 @@ def get_stt() -> SpeechRecognizer | None:
 @lru_cache
 def get_memory() -> MemoryStore | None:
     return make_memory(ROOT)
+
+
+@lru_cache
+def get_presence() -> Presence:
+    return Presence(ROOT / "data" / "presence.json")
 
 
 @lru_cache
@@ -171,6 +190,7 @@ async def health(
     llm: ChatLLM = Depends(get_llm),
     tts: SpeechEngine | None = Depends(get_tts),
     stt: SpeechRecognizer | None = Depends(get_stt),
+    presence: Presence = Depends(get_presence),
 ) -> dict:
     """`ok` = não đã sẵn sàng. Giọng và tai có trạng thái riêng để thiếu chúng không chặn chat."""
     problem = await llm.check()
@@ -187,7 +207,8 @@ async def health(
         stt_problem = stt.check()
         ears = {"engine": stt.name, **stt.info(), "ok": stt_problem is None, "problem": stt_problem}
     return {"ok": problem is None, "provider": llm.provider, "model": llm.model, "problem": problem,
-            "voice": voice, "stt": ears}
+            "voice": voice, "stt": ears,
+            "proactive": {"greeting": presence.greeting, "checkin_minutes": presence.checkin_minutes}}
 
 
 MIN_STT_SECONDS = 0.2
@@ -344,36 +365,23 @@ class Speaker:
         self.out.put_nowait(sse(event))
 
 
-@app.post("/api/chat")
-async def chat(
-    req: ChatRequest,
-    llm: ChatLLM = Depends(get_llm),
-    tts: SpeechEngine | None = Depends(get_tts),
-    memory: MemoryStore | None = Depends(get_memory),
-    turn_log: TurnLog = Depends(get_turn_log),
+def reply_stream(
+    *,
+    history: list[dict[str, str]],
+    system: str,
+    llm: ChatLLM,
+    tts: SpeechEngine | None,
+    speak: bool,
+    turn_log: TurnLog,
+    kind: str,
+    after_text: Callable[[], Awaitable[None]] | None = None,
 ) -> StreamingResponse:
-    """Trả về SSE: emotion/text/audio ... rồi {type:"done", raw} hoặc {type:"error"}.
+    """SSE cho một lượt Mira nói: emotion/text/audio ... text_done ... rồi {type:"done", raw} hoặc {type:"error"}.
 
-    `raw` là câu trả lời gốc còn tag; client lưu vào lịch sử để model giữ thói quen dùng tag.
-    Chữ (từ LLM) và giọng (từ Speaker) cùng đẩy vào một hàng đợi; `done` chỉ gửi sau khi giọng đã tạo xong.
+    Dùng chung cho tin của người dùng (/api/chat) và lời Mira tự nói (/api/proactive).
+    Chữ (từ LLM) và giọng (từ Speaker) cùng đẩy vào một hàng đợi; `done` chỉ gửi sau khi giọng (và `after_text`,
+    vd ghi nhớ) đã xong, để không bỏ task mồ côi.
     """
-    history = trim_history(req.messages)
-    speak = req.voice and tts is not None
-    now = datetime.now()  # giờ máy người dùng
-    system = system_prompt(now, memory.facts() if memory else [])
-    user_message = req.messages[-1].content
-
-    async def update_memory() -> None:
-        """Trích điều đáng nhớ từ tin vừa gửi. Lỗi ở đây chỉ ghi log, không bao giờ làm hỏng lượt chat."""
-        started = time.perf_counter()
-        record: dict = {"kind": "memory", "added": 0, "replaced": 0, "error": None}
-        try:
-            record |= await remember(llm, memory, user_message, now)
-        except Exception as err:
-            log.warning("cập nhật trí nhớ thất bại", exc_info=True)
-            record["error"] = type(err).__name__
-        record["ms"] = round((time.perf_counter() - started) * 1000)
-        turn_log.write(record)
 
     async def events() -> AsyncIterator[str]:
         out: asyncio.Queue[str | None] = asyncio.Queue()
@@ -384,8 +392,8 @@ async def chat(
         async def produce() -> None:
             parser = EmotionTagParser()
             try:
-                async for kind, value in llm.stream(history, system=system):
-                    if kind != "text":
+                async for kind_, value in llm.stream(history, system=system):
+                    if kind_ != "text":
                         st["stop"] = value
                         continue
                     st["raw"].append(value)
@@ -408,16 +416,16 @@ async def chat(
                 final = {"raw": "".join(st["raw"]), "stopReason": st["stop"]}
                 # Chữ xong rồi: client lưu lịch sử và cho gửi tin mới ngay, không phải chờ đọc hết giọng
                 out.put_nowait(sse({"type": "text_done", **final}))
-                # Ghi nhớ chạy song song với tạo giọng (GPU vs CPU); `done` chờ cả hai để không bỏ task mồ côi
-                remembering = asyncio.create_task(update_memory()) if memory else None
+                # Việc sau chữ (ghi nhớ, GPU) chạy song song với tạo giọng (CPU)
+                extra = asyncio.create_task(after_text()) if after_text else None
                 if speaker:
                     speaker.feed(last)
                     await speaker.finish()
-                if remembering:
-                    await remembering
+                if extra:
+                    await extra
                 out.put_nowait(sse({"type": "done", **final}))
             except Exception as err:  # báo lỗi cho người dùng thay vì cắt kết nối im lặng
-                log.exception("chat failed")
+                log.exception("%s failed", kind)
                 if speaker:
                     speaker.cancel()
                 st["error"] = friendly_error(err)
@@ -438,16 +446,84 @@ async def chat(
             def ms(at: float | None) -> int | None:
                 return None if at is None else round((at - start) * 1000)
 
-            turn_log.write({
+            record = {
                 "provider": llm.provider, "model": llm.model, "tts": tts.name if speak else None,
                 "first_text_ms": ms(st["first_text_at"]),
                 "first_audio_ms": ms(speaker.first_audio_at if speaker else None),
                 "total_ms": ms(time.perf_counter()), "segments": speaker.seq if speaker else 0,
                 "chars": len("".join(st["raw"])), "stop": st["stop"] or None, "error": st["error"],
                 "tts_error": bool(speaker and speaker.failed),
-            })
+            }
+            if kind != "chat":
+                record = {"kind": kind, **record}
+            turn_log.write(record)
 
     return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
+
+
+@app.post("/api/chat")
+async def chat(
+    req: ChatRequest,
+    llm: ChatLLM = Depends(get_llm),
+    tts: SpeechEngine | None = Depends(get_tts),
+    memory: MemoryStore | None = Depends(get_memory),
+    presence: Presence = Depends(get_presence),
+    turn_log: TurnLog = Depends(get_turn_log),
+) -> StreamingResponse:
+    """Người dùng nói/gõ một tin. `raw` trong `done` là câu trả lời gốc còn tag để client lưu lịch sử."""
+    now = datetime.now()  # giờ máy người dùng
+    presence.user_spoke(now)
+    user_message = req.messages[-1].content
+
+    async def update_memory() -> None:
+        """Trích điều đáng nhớ từ tin vừa gửi. Lỗi ở đây chỉ ghi log, không bao giờ làm hỏng lượt chat."""
+        started = time.perf_counter()
+        record: dict = {"kind": "memory", "added": 0, "replaced": 0, "error": None}
+        try:
+            record |= await remember(llm, memory, user_message, now)
+        except Exception as err:
+            log.warning("cập nhật trí nhớ thất bại", exc_info=True)
+            record["error"] = type(err).__name__
+        record["ms"] = round((time.perf_counter() - started) * 1000)
+        turn_log.write(record)
+
+    return reply_stream(
+        history=trim_history(req.messages), system=system_prompt(now, memory.facts() if memory else []),
+        llm=llm, tts=tts, speak=req.voice and tts is not None, turn_log=turn_log, kind="chat",
+        after_text=update_memory if memory else None,
+    )
+
+
+class ProactiveRequest(BaseModel):
+    kind: Literal["greet", "checkin"]
+    messages: list[ChatTurn] = Field(default_factory=list)
+    voice: bool = False
+
+
+@app.post("/api/proactive", response_model=None)
+async def proactive(
+    req: ProactiveRequest,
+    llm: ChatLLM = Depends(get_llm),
+    tts: SpeechEngine | None = Depends(get_tts),
+    memory: MemoryStore | None = Depends(get_memory),
+    presence: Presence = Depends(get_presence),
+    turn_log: TurnLog = Depends(get_turn_log),
+) -> StreamingResponse | Response:
+    """Mira tự nói: chào khi mở trang (`greet`) hoặc hỏi thăm khi im lâu (`checkin`). Chưa đến lúc thì trả 204.
+
+    Lời nhắc cho model là một lượt "user" tạm: không hiện ra, không lưu lịch sử, không bị trích làm điều đáng nhớ.
+    """
+    now = datetime.now()
+    due = presence.should_greet(now) if req.kind == "greet" else presence.should_check_in(now)
+    if not due:
+        return Response(status_code=204)
+    if req.kind == "greet":
+        presence.greeted(now)  # đánh dấu ngay để tải lại trang liên tục không chào nhiều lần
+    note = ChatTurn(role="user", content=proactive_prompt(req.kind, presence.last_user_at, now))
+    return reply_stream(
+        history=trim_history([*req.messages, note]), system=system_prompt(now, memory.facts() if memory else []),
+        llm=llm, tts=tts, speak=req.voice and tts is not None, turn_log=turn_log, kind=req.kind,
+    )
 
 
 @app.get("/api/memory")
