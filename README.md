@@ -104,10 +104,15 @@ Chi tiết: `specs/002-voice-tts/contracts/chat-sse.md`.
 
 - Mira chủ động: `PROACTIVE_GREETING` (true), `GREET_MIN_GAP_MINUTES` (30), `PROACTIVE_CHECKIN_MINUTES` (10, 0 = tắt).
 
+- Từ đánh thức cho Rảnh tay: `HANDSFREE_WAKE_WORD` (true), `WAKE_WINDOW_SECONDS` (60). Đã im quá 60 giây thì phải mở đầu
+  bằng "Mira ơi / Mira à / Này Mira / Ê Mira…" Mira mới trả lời; đang trò chuyện hoặc giữ để nói thì không cần.
+
 ## Giới hạn hiện tại
 
 - Lời chào khi mở trang chỉ có chữ nếu trình duyệt chưa cho phát âm thanh (chưa bấm gì vào trang).
 - Model 8B đôi khi tự thêm chi tiết nhỏ khi chào/hỏi thăm dù đã dặn không bịa.
+- Từ đánh thức nhận tên theo chữ STT ghi ra, nên chấp nhận vài cách nghe nhầm ("Vera ơi", "Misa ơi"…). Mở đầu câu bằng
+  "Visa ơi"/"Mara ơi" thật cũng sẽ đánh thức Mira; "Ê Mira" đôi khi bị nghe thành "Camera" và bị bỏ qua.
 
 - Giọng chưa đổi theo cảm xúc của câu (VieNeu có tag `[cười]`… đang thử nghiệm, chưa dùng). Giọng riêng là spec 004
   (VieNeu bắt chước được giọng từ mẫu 3–8s).

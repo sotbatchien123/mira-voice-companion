@@ -18,6 +18,7 @@
 - **Nghe giọng nói (spec 003):** mặc định **Zipformer-30M** (sherpa-onnx, CPU, model ở `D:\voice_models\Zipformer-30M-RNNT-6000h` của VoiceDeck), có Silero VAD chặn im lặng; Whisper `small` làm dự phòng. Nút "Giữ để nói" (hoặc giữ Space khi ô nhập trống), "Rảnh tay" (VAD theo VoiceDeck), người dùng nói thì Mira im. Đo: FLEURS người thật WER 8,8% / 0,18s. **Chưa thử lại mic thật sau khi đổi.**
 - **Trí nhớ dài hạn (spec 004):** `app/memory.py`, `data/memory.json` (gitignored). Model chỉ đề xuất điều mới + loại; code tự thay theo loại (tên, tuổi, nghề, nơi ở, cách gọi) và ghi ngày nói. System prompt có ngày giờ + điều đã nhớ. Lịch sử cắt theo 5000 ký tự. Nút "Trí nhớ" xem/xóa. Kiểm chứng thật đạt hết (`scripts/verify_memory.py`).
 - **Mira chủ động (spec 006):** `app/presence.py`, `POST /api/proactive {kind: greet|checkin}` (204 nếu chưa đến lúc). Chào khi mở trang nếu vắng ≥ 30 phút; hỏi thăm 1 lần khi im ≥ 10 phút (trang hiện, không bận). Mốc thời gian trong trí nhớ được code đổi thành ngày + nhãn đã diễn ra/hôm nay/sắp tới.
+- **Từ đánh thức (spec 007):** `app/wake.py` nhận "Mira ơi" mờ (STT hay nghe thành Vera/Misa/Mara/"mới ra"/Emmira); `/api/stt` trả `wake` và sửa tên về "Mira". Rảnh tay + im > `WAKE_WINDOW_SECONDS` (60) thì câu không gọi tên bị bỏ qua lặng lẽ, ô nhập gợi ý gọi tên. Giữ để nói không bị ảnh hưởng.
 - **Git:** repo khởi tạo 2026-11-14, nhánh `main`. `.claude/settings.local.json`, `.env`, model, log không vào git.
 - **Đã kiểm chứng với qwen3:8b thật (spec 001):**
   - `uv run pytest` 20/20 pass (lúc đó).
@@ -84,6 +85,24 @@ Nguồn: trang chủ và `/privacy` (bản sửa 2026-09-07). Họ không công 
 - Định tuyến nhiều nhà cung cấp cloud (trái local-first).
 
 ## Nhật ký phiên
+
+### 2026-11-14 (lần 24): spec 007 từ đánh thức "Mira ơi"
+- Đo trước: VieNeu 3 giọng đọc → Zipformer nghe. Chỉ giọng Ngọc Huyền ra đúng "Mira"; còn lại thành "Vera ơi", "Me ra ơi", "Visa ơi", "Mara ơi", "Misa ơi", "Đi ra ơi", "Này mới ra", "Emmira", "Camera". Câu thường ("Chị mai ơi", "Mía…") không bị nghe thành tên.
+- Thiết kế: tên chắc chắn nhận luôn; tên dễ nhầm cần "ơi/à/a" sau hoặc "này/ê/chào" trước; "đi ra" chỉ khi có "ơi". Chỉ xét đầu câu. Test 37 ca từ chuỗi đo thật (15/16 câu gọi được nhận, 0 nhận nhầm). Tổng test 140 pass.
+- Kiểm chứng trong trình duyệt bằng mic giả lập (phát WAV vào getUserMedia): im 60s → câu TV bị bỏ qua, ô nhập hiện gợi ý; "Mira ơi, hôm nay trời đẹp quá" → trả lời; "Em thích mùa nào nhất?" ngay sau đó không cần tên → trả lời.
+- Lỗi bắt được khi thử: lời chào lúc mở trang treo 94s (model nạp nguội khi server vừa khởi động) nên câu TV lọt vì luật "Mira đang trả lời thì không cần tên". Bỏ luật đó; chỉ giữ "Mira đang phát tiếng" + cửa sổ 60s.
+- Chưa thử với mic thật/TV thật trong phòng.
+
+### 2026-11-14 (lần 23): xem lại VoiceDeck vừa được sửa
+- VoiceDeck (`D:\VoiceDeck`, chưa có commit git) vừa được làm lại:
+  - Áp dụng Spec Kit; sửa số nói bằng chữ → chữ số; giữ dấu truy vấn YouTube.
+  - `ASR_ALIASES` (DU TUYẾT → youtube…); bỏ `audioop`; bỏ đường dẫn cứng ổ D; cổng CDP động. 101/101 test.
+  - Còn mở: chế độ tự nghe chưa có từ đánh thức (câu nói thường kích hoạt lệnh).
+- Đánh giá cho Mira:
+  - **Không lấy** `spoken_numbers_to_digits`: hợp với lệnh, nhưng với chat sẽ đổi "năm nay" → "5 nay", "một con mèo" → "1 con mèo"; model vẫn hiểu số bằng chữ.
+  - **Không cần** `ASR_ALIASES`: đo Zipformer trên 8 câu chat có từ tiếng Anh × 2 giọng → Mira, anime, YouTube, game, TikTok, Facebook, iPhone, Marvel đều đúng; chỉ sai "code" → "cốt" và Python với giọng nam (một phần do TTS đọc tiếng Anh).
+  - **Đáng cân nhắc:** vấn đề "tự nghe không có từ đánh thức" cũng có ở chế độ Rảnh tay của Mira (TV/người khác nói → Mira trả lời).
+- Mira có thể gợi ý ngược lại cho VoiceDeck: chặn bằng Silero VAD trước Zipformer (đo ở Mira: không chặn thì im lặng/tiếng ồn ra "Và", "Đây", "Tôi").
 
 ### 2026-11-14 (lần 22): spec 006 Mira chủ động
 - **Spike** `spikes/proactive_prompt.py`:

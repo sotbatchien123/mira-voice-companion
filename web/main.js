@@ -185,6 +185,7 @@ async function runMiraTurn({ url = "/api/chat", extra = {}, speak, pending = tru
   } finally {
     if (inFlight === turn) {
       inFlight = null;
+      lastExchange = Date.now(); // vừa có lượt trò chuyện: nói tiếp không cần gọi tên
       sendBtn.disabled = false;
       avatar.setTalking(false);
       if (pending) input.focus();
@@ -203,6 +204,7 @@ form.addEventListener("submit", async (e) => {
   }
   input.value = "";
   markActivity();
+  lastExchange = Date.now();
   addBubble("user", text);
   history.push({ role: "user", content: text });
   saveHistory();
@@ -252,6 +254,8 @@ async function checkBrain() {
     micBtn.title = health.stt.problem;
   }
   checkinMinutes = health.proactive?.checkin_minutes ?? 0;
+  wake = health.wake ?? wake;
+  refreshPlaceholder();
   // Server tự quyết có nên chào không (vắng đủ lâu, chưa chào gần đây); không thì trả 204 và không hiện gì
   if (health.ok && health.proactive?.greeting) await askMira("greet");
 }
@@ -263,14 +267,39 @@ const handsFreeBtn = $("handsfree-btn");
 // Lựa chọn rảnh tay được nhớ, nhưng mic chỉ mở sau cú bấm đầu tiên của người dùng (luật của trình duyệt)
 const handsFreeSaved = localStorage.getItem(HANDSFREE_KEY) === "on";
 let handsFree = false;
+
+// ---------- Từ đánh thức "Mira ơi" (spec 007) ----------
+// Rảnh tay mà đã im quá cửa sổ trò chuyện thì chỉ nghe câu mở đầu bằng tên Mira (server nhận diện, kể cả khi
+// STT nghe nhầm tên). Đang trò chuyện, Mira đang nói, hoặc bấm giữ để nói thì không cần.
+const DEFAULT_PLACEHOLDER = "Nhắn gì đó cho cô ấy...";
+const WAKE_PLACEHOLDER = "Rảnh tay: gọi “Mira ơi…” để nói chuyện";
+let wake = { required: false, window_seconds: 60 };
+let lastExchange = Date.now();
+let utteranceNeedsWake = false; // quyết định lúc bắt đầu nói, để câu dài không bị đổi luật giữa chừng
+
+function needsWake() {
+  // Không xét "đang chờ trả lời": lời chào chủ động có thể treo lâu (model nạp nguội) khi anh không có mặt;
+  // lượt anh vừa gửi đã tự mở cửa sổ qua lastExchange.
+  if (!handsFree || !wake.required || mic.manual || player.playing) return false;
+  return Date.now() - lastExchange > wake.window_seconds * 1000;
+}
+
+function refreshPlaceholder() {
+  if (input.placeholder !== DEFAULT_PLACEHOLDER && input.placeholder !== WAKE_PLACEHOLDER) return;
+  input.placeholder = needsWake() ? WAKE_PLACEHOLDER : DEFAULT_PLACEHOLDER;
+}
+setInterval(refreshPlaceholder, 2000);
+
 const mic = new MicRecorder({
   onSpeechStart: () => {
+    utteranceNeedsWake = needsWake();
+    if (utteranceNeedsWake) return; // có thể chỉ là TV/người khác: chưa ngắt lời, chưa quay sang nghe
     interruptMira();
     avatar.setListening(true);
     markActivity();
   },
   onSpeechEnd: () => avatar.setListening(false),
-  onUtterance: (pcm) => transcribeAndSend(pcm),
+  onUtterance: (pcm) => transcribeAndSend(pcm, utteranceNeedsWake),
   isAssistantSpeaking: () => player.playing,
 });
 
@@ -280,13 +309,17 @@ function interruptMira() {
   if (inFlight?.textSaved) inFlight.controller.abort();
 }
 
-async function transcribeAndSend(pcm) {
+async function transcribeAndSend(pcm, requireWake = false) {
   micBtn.classList.add("busy");
   input.placeholder = "Đang nhận dạng...";
   try {
     const res = await fetch("/api/stt", { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: pcm });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.detail ?? `Server trả về ${res.status}`);
+    if (requireWake && !body.wake) {
+      input.placeholder = WAKE_PLACEHOLDER; // không phải gọi Mira: lặng lẽ bỏ qua
+      return;
+    }
     if (!body.text) {
       input.placeholder = "Không nghe rõ, anh nói lại nha...";
       return;
@@ -297,7 +330,8 @@ async function transcribeAndSend(pcm) {
     addBubble("error", err.message);
   } finally {
     micBtn.classList.remove("busy");
-    if (input.placeholder === "Đang nhận dạng...") input.placeholder = "Nhắn gì đó cho cô ấy...";
+    if (input.placeholder === "Đang nhận dạng...") input.placeholder = DEFAULT_PLACEHOLDER;
+    refreshPlaceholder();
   }
 }
 
@@ -323,7 +357,8 @@ async function beginTalk() {
 function endTalk() {
   if (!mic.manual) return;
   micBtn.classList.remove("listening");
-  input.placeholder = "Nhắn gì đó cho cô ấy...";
+  input.placeholder = DEFAULT_PLACEHOLDER;
+  refreshPlaceholder();
   mic.stopManual();
   if (!handsFree) mic.stop(); // tắt đèn mic khi không dùng
 }
@@ -363,6 +398,7 @@ async function setHandsFree(on) {
   mic.setHandsFree(on);
   if (!on && !mic.manual) mic.stop();
   renderHandsFree();
+  refreshPlaceholder();
 }
 
 handsFreeBtn.addEventListener("click", () => {

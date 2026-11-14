@@ -30,6 +30,7 @@ from .emotion_tags import EmotionTagParser, ParsedChunk
 from .llm import ChatLLM, LLMError, make_llm
 from .memory import MemoryStore, make_memory, remember, system_prompt
 from .presence import Presence, proactive_prompt
+from .wake import detect_wake, wake_settings
 from .speech_text import SpeechSegmenter, clean_for_speech
 from .stt import SAMPLE_RATE, SpeechRecognizer, STTError, make_stt
 from .tts import SpeechEngine, TTSError, make_tts
@@ -208,7 +209,8 @@ async def health(
         ears = {"engine": stt.name, **stt.info(), "ok": stt_problem is None, "problem": stt_problem}
     return {"ok": problem is None, "provider": llm.provider, "model": llm.model, "problem": problem,
             "voice": voice, "stt": ears,
-            "proactive": {"greeting": presence.greeting, "checkin_minutes": presence.checkin_minutes}}
+            "proactive": {"greeting": presence.greeting, "checkin_minutes": presence.checkin_minutes},
+            "wake": wake_settings()}
 
 
 MIN_STT_SECONDS = 0.2
@@ -221,7 +223,9 @@ async def speech_to_text(
     stt: SpeechRecognizer | None = Depends(get_stt),
     turn_log: TurnLog = Depends(get_turn_log),
 ) -> dict:
-    """Body: PCM 16-bit LE mono 16kHz. Trả {text, audio_ms, ms}; text rỗng nếu không nghe thấy tiếng nói."""
+    """Body: PCM 16-bit LE mono 16kHz. Trả {text, wake, audio_ms, ms}; text rỗng nếu không nghe thấy tiếng nói.
+
+    wake: câu mở đầu bằng tiếng gọi Mira (tên nghe nhầm được viết lại đúng trong text)."""
     if stt is None:
         raise HTTPException(503, "Nghe giọng nói đang tắt (STT_PROVIDER=none trong .env).")
     pcm = await request.body()
@@ -246,7 +250,8 @@ async def speech_to_text(
                     "chars": len(text), "error": error})
     if error:
         raise HTTPException(500, error)
-    return {"text": text, "audio_ms": round(seconds * 1000), "ms": took}
+    wake, text = detect_wake(text)
+    return {"text": text, "wake": wake, "audio_ms": round(seconds * 1000), "ms": took}
 
 
 FADE_IN_S = 0.01  # làm to dần 10ms ở đầu mỗi đoạn để không bật tiếng "tách"
