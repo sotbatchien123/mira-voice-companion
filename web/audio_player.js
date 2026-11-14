@@ -40,7 +40,7 @@ export class AudioPlayer {
     return this.ctx?.state === "running";
   }
 
-  /** @param {{part: number, rate: number, pcm: string, text?: string, emotion?: string | null}} chunk */
+  /** @param {{part: number, rate: number, pcm: string, text?: string, emotion?: string | null, speed?: number}} chunk */
   enqueue(chunk) {
     this.unlock();
     const bytes = Uint8Array.from(atob(chunk.pcm), (c) => c.charCodeAt(0));
@@ -48,16 +48,18 @@ export class AudioPlayer {
     const buffer = this.ctx.createBuffer(1, pcm.length, chunk.rate);
     const data = buffer.getChannelData(0);
     for (let i = 0; i < pcm.length; i++) data[i] = pcm[i] / 32768;
-    // Mảnh đầu của mỗi đoạn mang chữ + cảm xúc: báo ra ngoài đúng lúc đoạn đó bắt đầu phát
+    // Mảnh đầu của mỗi đoạn mang chữ + cảm xúc + tốc độ: cả đoạn phát cùng tốc độ (vui nhanh/cao hơn chút, buồn chậm hơn)
+    if (chunk.part === 0) this.speed = chunk.speed ?? 1;
     this.schedule(buffer, chunk.part === 0 ? { text: chunk.text, emotion: chunk.emotion ?? null } : null);
   }
 
   schedule(buffer, meta) {
     const src = this.ctx.createBufferSource();
     src.buffer = buffer;
+    src.playbackRate.value = this.speed ?? 1;
     src.connect(this.analyser);
     const startAt = Math.max(this.ctx.currentTime + 0.02, this.nextStart);
-    this.nextStart = startAt + buffer.duration;
+    this.nextStart = startAt + buffer.duration / src.playbackRate.value;
     src.start(startAt);
     this.sources.add(src);
     src.onended = () => {

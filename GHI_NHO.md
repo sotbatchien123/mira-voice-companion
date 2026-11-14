@@ -19,6 +19,8 @@
 - **Trí nhớ dài hạn (spec 004):** `app/memory.py`, `data/memory.json` (gitignored). Model chỉ đề xuất điều mới + loại; code tự thay theo loại (tên, tuổi, nghề, nơi ở, cách gọi) và ghi ngày nói. System prompt có ngày giờ + điều đã nhớ. Lịch sử cắt theo 5000 ký tự. Nút "Trí nhớ" xem/xóa. Kiểm chứng thật đạt hết (`scripts/verify_memory.py`).
 - **Mira chủ động (spec 006):** `app/presence.py`, `POST /api/proactive {kind: greet|checkin}` (204 nếu chưa đến lúc). Chào khi mở trang nếu vắng ≥ 30 phút; hỏi thăm 1 lần khi im ≥ 10 phút (trang hiện, không bận). Mốc thời gian trong trí nhớ được code đổi thành ngày + nhãn đã diễn ra/hôm nay/sắp tới.
 - **Từ đánh thức (spec 007):** `app/wake.py` nhận "Mira ơi" mờ (STT hay nghe thành Vera/Misa/Mara/"mới ra"/Emmira); `/api/stt` trả `wake` và sửa tên về "Mira". Rảnh tay + im > `WAKE_WINDOW_SECONDS` (60) thì câu không gọi tên bị bỏ qua lặng lẽ, ô nhập gợi ý gọi tên. Giữ để nói không bị ảnh hưởng.
+- **Giọng theo cảm xúc (spec 008):** `app/voice_style.py`. Câu vui chèn `[cười]`, câu buồn `[thở dài]` (tín hiệu VieNeu, mỗi loại 1 lần/120s, chỉ engine có `supports_cues`); event audio có `speed` (vui 1.05, buồn 0.94) → trình duyệt đổi `playbackRate`. Tag cảm xúc giờ là ranh giới đoạn đọc (trước đây câu đứng ngay trước tag bị gán cảm xúc mới). **Người dùng chưa nghe.**
+- **Trí nhớ sâu hơn (spec 009):** `app/episodes.py`, `data/episodes.json`. Server ghi buổi đang nói; im > 30 phút thì tóm tắt 1–3 câu (hẹn giờ trong server; server tắt thì tóm tắt bù ở lượt sau, lời chào chờ). Prompt kèm 3 buổi gần nhất. `MemoryStore.expire_events` bỏ sự kiện đã qua > 14 ngày.
 - **Git:** repo khởi tạo 2026-11-14, nhánh `main`. `.claude/settings.local.json`, `.env`, model, log không vào git.
 - **Đã kiểm chứng với qwen3:8b thật (spec 001):**
   - `uv run pytest` 20/20 pass (lúc đó).
@@ -85,6 +87,14 @@ Nguồn: trang chủ và `/privacy` (bản sửa 2026-09-07). Họ không công 
 - Định tuyến nhiều nhà cung cấp cloud (trái local-first).
 
 ## Nhật ký phiên
+
+### 2026-11-14 (lần 25): spec 008 giọng theo cảm xúc + spec 009 trí nhớ sâu hơn
+- VieNeu v3 Turbo chỉ có `[cười]`, `[thở dài]`, `[hắng giọng]`, không có tham số tốc độ. Đo: cười +0,9s, thở dài +0,5s, STT không nghe ra chữ (là tiếng thật). Mẫu nghe ở `spikes/audio/emotion_out/` (gitignored).
+- Test bắt lỗi cũ: tag `[sad]` đến ngay sau dấu chấm làm câu trước bị gán buồn (bộ tách câu chờ 1 ký tự). Sửa: `ParsedChunk.marks` + `SpeechSegmenter.cut()`; test với 3 kiểu chia mảnh (cả câu, từng từ, từng ký tự).
+- Spike tóm tắt (qwen3:8b, 9 lần): trung thực ~1,5s; bản đầu bỏ "FPT" và viết "khám mai" → thêm luật giữ tên riêng, viết đủ mốc thời gian; lần 2 đúng 9/9.
+- Kiểm chứng thật: 3 tin qua `/api/chat` có giọng: speed đúng theo cảm xúc, câu vui đầu có tiếng cười (2,48s cho "Ôi, thật sự à!"), câu vui sau 15s không cười lại. Lùi buổi đó về tối hôm qua, khởi động lại server, mở trang: tóm tắt bù rồi chào "Anh về rồi à? … anh có đưa Mướp đi khám chưa?". Hộp thoại Trí nhớ hiện đúng. Đã dọn sạch dữ liệu thử (trí nhớ rỗng như trước, presence trả lại bản cũ).
+- Test 148 → 161 pass.
+- Chưa: người dùng nghe giọng cảm xúc; chưa thử nhánh hẹn giờ tóm tắt 30 phút với server thật (chỉ test offline với 0 phút).
 
 ### 2026-11-14 (lần 24): spec 007 từ đánh thức "Mira ơi"
 - Đo trước: VieNeu 3 giọng đọc → Zipformer nghe. Chỉ giọng Ngọc Huyền ra đúng "Mira"; còn lại thành "Vera ơi", "Me ra ơi", "Visa ơi", "Mara ơi", "Misa ơi", "Đi ra ơi", "Này mới ra", "Emmira", "Camera". Câu thường ("Chị mai ơi", "Mía…") không bị nghe thành tên.

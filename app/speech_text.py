@@ -34,6 +34,18 @@ class SpeechSegmenter:
             out.append(seg)
         return out
 
+    def cut(self) -> list[str]:
+        """Sắp đổi cảm xúc (gặp tag): nếu phần đang gom đã hết câu thì cắt luôn, không chờ ký tự kế tiếp.
+
+        Không cắt thì câu cũ sẽ bị đọc bằng cảm xúc mới (vd tiếng thở dài rơi vào câu vui ngay trước).
+        """
+        rest = self._buf.strip()
+        core = rest.rstrip(CLOSING)
+        if core and core[-1] in SENTENCE_END and _letters(rest) >= self.min_letters:
+            self._buf, self._first = "", False
+            return [rest]
+        return []
+
     def flush(self) -> list[str]:
         rest, self._buf = self._buf.strip(), ""
         return [rest] if _letters(rest) else []

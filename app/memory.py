@@ -26,6 +26,7 @@ KINDS = ("ten", "tuoi", "nghe_nghiep", "noi_o", "cach_goi", "gia_dinh", "thu_cun
 SINGLE_VALUE = {"ten", "tuoi", "nghe_nghiep", "noi_o", "cach_goi"}  # điều mới thay điều cũ cùng loại
 MAX_FACTS = 60
 MAX_FACT_CHARS = 200
+EVENT_KEEP_DAYS = 14  # sự kiện có ngày cụ thể đã qua quá chừng này ngày thì bỏ (không còn đáng hỏi thăm)
 MEMORY_PROMPT_CHARS = 1200  # ~570 token tiếng Việt, xem specs/004-long-term-memory/plan.md
 WEEKDAYS = ("thứ Hai", "thứ Ba", "thứ Tư", "thứ Năm", "thứ Sáu", "thứ Bảy", "Chủ nhật")
 
@@ -110,6 +111,28 @@ class MemoryStore:
             self._facts = []
             self._write()
 
+    def expire_events(self, today: datetime, keep_days: int | None = None) -> int:
+        """Bỏ sự kiện đã qua lâu ("thứ Sáu này anh đi phỏng vấn" sau 2 tuần). Luật cố định trong code, không nhờ model.
+
+        Chỉ bỏ điều loại su_kien có ngày cụ thể (sau khi đổi mốc tương đối) và mọi ngày trong đó đều đã qua quá
+        keep_days. Sự kiện không có ngày thì giữ (sẽ bị đẩy ra khi đầy MAX_FACTS)."""
+        keep = EVENT_KEEP_DAYS if keep_days is None else keep_days
+        cutoff = today.date() - timedelta(days=keep)
+
+        def stale(f: Fact) -> bool:
+            if f.kind != "su_kien":
+                return False
+            dates = _dates(resolve_relative_dates(f.text, f.said_on))
+            return bool(dates) and max(dates) < cutoff
+
+        with self._lock:
+            before = len(self._facts)
+            self._facts = [f for f in self._facts if not stale(f)]
+            removed = before - len(self._facts)
+            if removed:
+                self._write()
+            return removed
+
 
 def part_of_day(now: datetime) -> str:
     """Ghi rõ buổi: spike cho thấy chỉ có giờ thì model 8B nói "trưa rồi" lúc 15:00."""
@@ -166,10 +189,20 @@ def resolve_relative_dates(text: str, said_on: str) -> str:
 _DATE_RE = re.compile(r"(\d{2})/(\d{2})/(\d{4})")
 
 
+def _dates(text: str):
+    out = []
+    for d, m, y in _DATE_RE.findall(text):
+        try:
+            out.append(datetime(int(y), int(m), int(d)).date())
+        except ValueError:  # "31/02/2026" do anh gõ nhầm: bỏ qua thay vì làm hỏng cả lượt chat
+            continue
+    return out
+
+
 def event_status(text: str, today: datetime | None) -> str:
     """Gắn nhãn đã diễn ra / hôm nay / sắp tới cho điều có ngày cụ thể. Đo thật: câu "Anh sắp đi phỏng vấn vào ngày
     13/11" khiến model vẫn nói "sắp" vào ngày 14/11; so ngày là việc của code."""
-    dates = [datetime(int(y), int(m), int(d)).date() for d, m, y in _DATE_RE.findall(text)]
+    dates = _dates(text)
     if today is None or not dates:
         return ""
     last = max(dates)
@@ -207,12 +240,16 @@ def render_memory(facts: list[Fact], limit: int = MEMORY_PROMPT_CHARS, today: da
     return "\n".join(lines)
 
 
-def system_prompt(now: datetime, facts: list[Fact]) -> str:
+def system_prompt(now: datetime, facts: list[Fact], episodes: str = "") -> str:
+    """episodes: các buổi trò chuyện trước đã tóm tắt (app.episodes.render_episodes), rỗng nếu chưa có."""
     parts = [SYSTEM_PROMPT, "", today_line(now)]
     memory = render_memory(facts, today=now)
     if memory:
         parts += ["", "Những điều em đã biết về anh (từ các lần trò chuyện trước). Chỉ nhắc khi liên quan, đừng kể lể; "
                       "không suy ra hay bịa thêm điều gì ngoài danh sách này:", memory]
+    if episodes:
+        parts += ["", "Các lần trò chuyện gần đây (tóm tắt, mới nhất trước). Dùng để nối tiếp câu chuyện khi hợp lý; "
+                      "không bịa thêm chi tiết:", episodes]
     return "\n".join(parts)
 
 

@@ -26,10 +26,12 @@ from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
-from .emotion_tags import EmotionTagParser, ParsedChunk
+from .emotion_tags import EmotionTagParser, ParsedChunk, parse_complete
+from .episodes import EpisodeStore, make_episodes, render_episodes
 from .llm import ChatLLM, LLMError, make_llm
 from .memory import MemoryStore, make_memory, remember, system_prompt
 from .presence import Presence, proactive_prompt
+from .voice_style import VoiceStyle
 from .wake import detect_wake, wake_settings
 from .speech_text import SpeechSegmenter, clean_for_speech
 from .stt import SAMPLE_RATE, SpeechRecognizer, STTError, make_stt
@@ -118,6 +120,16 @@ def get_memory() -> MemoryStore | None:
 @lru_cache
 def get_presence() -> Presence:
     return Presence(ROOT / "data" / "presence.json")
+
+
+@lru_cache
+def get_episodes() -> EpisodeStore | None:
+    return make_episodes(ROOT)
+
+
+@lru_cache
+def get_voice_style() -> VoiceStyle:
+    return VoiceStyle()
 
 
 @lru_cache
@@ -302,9 +314,10 @@ class Speaker:
     Chạy song song nên chữ không phải chờ giọng (VieNeu mất ~0,45 giây cho mỗi giây audio).
     """
 
-    def __init__(self, tts: SpeechEngine, out: asyncio.Queue) -> None:
+    def __init__(self, tts: SpeechEngine, out: asyncio.Queue, style: VoiceStyle | None = None) -> None:
         self.tts = tts
         self.out = out
+        self.style = style
         self.segmenter = SpeechSegmenter()
         self.seq = 0
         self.failed = False
@@ -316,8 +329,14 @@ class Speaker:
         self._task = asyncio.create_task(self._run())
 
     def feed(self, chunk: ParsedChunk) -> None:
-        self._pending += chunk.emotions
-        self._enqueue(self.segmenter.push(chunk.text))
+        # Tag cảm xúc là ranh giới: chữ trước tag đọc bằng cảm xúc cũ, câu đã xong thì cắt ngay
+        pos = 0
+        for at, emotion in chunk.marks:
+            self._enqueue(self.segmenter.push(chunk.text[pos:at]))
+            self._enqueue(self.segmenter.cut())
+            self._pending.append(emotion)
+            pos = at
+        self._enqueue(self.segmenter.push(chunk.text[pos:]))
 
     async def finish(self) -> None:
         """Đọc nốt phần còn lại và chờ tạo xong hết giọng."""
@@ -345,8 +364,12 @@ class Speaker:
                 continue
             text, emotion = item
             part = 0
+            spoken = text
+            # Chỉ engine hiểu tín hiệu mới nhận "[cười]"; Piper sẽ đọc to nguyên chữ
+            if self.style and getattr(self.tts, "supports_cues", False) and (cue := self.style.cue(emotion)):
+                spoken = f"{cue} {text}"
             try:
-                async for pcm in iterate_in_thread(functools.partial(self.tts.stream, text), self._stop):
+                async for pcm in iterate_in_thread(functools.partial(self.tts.stream, spoken), self._stop):
                     self._emit(text, emotion, part, fade_in(pcm, self.tts.sample_rate) if part == 0 else pcm)
                     part += 1
                 pause = int(self.tts.sample_rate * self.tts.segment_pause_s)
@@ -367,6 +390,9 @@ class Speaker:
                  "pcm": base64.b64encode(pcm).decode("ascii")}
         if part == 0:
             event |= {"text": text, "emotion": emotion}
+            speed = self.style.speed_for(emotion) if self.style else 1.0
+            if speed != 1.0:
+                event["speed"] = speed  # trình duyệt phát nhanh/chậm hơn cả đoạn (kèm cao độ)
         self.out.put_nowait(sse(event))
 
 
@@ -379,7 +405,8 @@ def reply_stream(
     speak: bool,
     turn_log: TurnLog,
     kind: str,
-    after_text: Callable[[], Awaitable[None]] | None = None,
+    after_text: Callable[[str], Awaitable[None]] | None = None,
+    style: VoiceStyle | None = None,
 ) -> StreamingResponse:
     """SSE cho một lượt Mira nói: emotion/text/audio ... text_done ... rồi {type:"done", raw} hoặc {type:"error"}.
 
@@ -390,7 +417,7 @@ def reply_stream(
 
     async def events() -> AsyncIterator[str]:
         out: asyncio.Queue[str | None] = asyncio.Queue()
-        speaker = Speaker(tts, out) if speak else None
+        speaker = Speaker(tts, out, style) if speak else None
         st = {"raw": [], "stop": "", "error": None, "first_text_at": None}
         start = time.perf_counter()
 
@@ -422,7 +449,7 @@ def reply_stream(
                 # Chữ xong rồi: client lưu lịch sử và cho gửi tin mới ngay, không phải chờ đọc hết giọng
                 out.put_nowait(sse({"type": "text_done", **final}))
                 # Việc sau chữ (ghi nhớ, GPU) chạy song song với tạo giọng (CPU)
-                extra = asyncio.create_task(after_text()) if after_text else None
+                extra = asyncio.create_task(after_text(final["raw"])) if after_text else None
                 if speaker:
                     speaker.feed(last)
                     await speaker.finish()
@@ -474,11 +501,26 @@ async def chat(
     memory: MemoryStore | None = Depends(get_memory),
     presence: Presence = Depends(get_presence),
     turn_log: TurnLog = Depends(get_turn_log),
+    style: VoiceStyle = Depends(get_voice_style),
+    episodes: EpisodeStore | None = Depends(get_episodes),
 ) -> StreamingResponse:
     """Người dùng nói/gõ một tin. `raw` trong `done` là câu trả lời gốc còn tag để client lưu lịch sử."""
     now = datetime.now()  # giờ máy người dùng
     presence.user_spoke(now)
     user_message = req.messages[-1].content
+    if episodes:
+        if episodes.due(now):
+            # Buổi trước chưa được tóm tắt (server vừa khởi động lại): làm ở nền, lượt này vẫn còn lịch sử bên trình duyệt
+            schedule_episode_close(episodes, llm, turn_log)
+        episodes.record("user", user_message, now)
+    system = build_system(now, memory, episodes)
+
+    async def after_reply(raw: str) -> None:
+        if episodes:
+            episodes.record("assistant", parse_complete(raw).text, datetime.now())
+            episodes.close_later(llm, on_done=lambda r: turn_log.write({"kind": "episode", **r}))
+        if memory:
+            await update_memory()
 
     async def update_memory() -> None:
         """Trích điều đáng nhớ từ tin vừa gửi. Lỗi ở đây chỉ ghi log, không bao giờ làm hỏng lượt chat."""
@@ -493,10 +535,28 @@ async def chat(
         turn_log.write(record)
 
     return reply_stream(
-        history=trim_history(req.messages), system=system_prompt(now, memory.facts() if memory else []),
+        history=trim_history(req.messages), system=system,
         llm=llm, tts=tts, speak=req.voice and tts is not None, turn_log=turn_log, kind="chat",
-        after_text=update_memory if memory else None,
+        after_text=after_reply, style=style,
     )
+
+
+def build_system(now: datetime, memory: MemoryStore | None, episodes: EpisodeStore | None) -> str:
+    if memory:
+        memory.expire_events(now)  # bỏ sự kiện đã qua lâu trước khi đưa vào prompt
+    return system_prompt(now, memory.facts() if memory else [],
+                         render_episodes(episodes.list(), now) if episodes else "")
+
+
+def schedule_episode_close(episodes: EpisodeStore, llm: ChatLLM, turn_log: TurnLog) -> asyncio.Task:
+    async def run() -> None:
+        try:
+            turn_log.write({"kind": "episode", **(await episodes.close(llm))})
+        except Exception as err:
+            log.warning("tóm tắt buổi trò chuyện thất bại", exc_info=True)
+            turn_log.write({"kind": "episode", "summarized": False, "error": type(err).__name__})
+
+    return asyncio.create_task(run())
 
 
 class ProactiveRequest(BaseModel):
@@ -513,6 +573,8 @@ async def proactive(
     memory: MemoryStore | None = Depends(get_memory),
     presence: Presence = Depends(get_presence),
     turn_log: TurnLog = Depends(get_turn_log),
+    style: VoiceStyle = Depends(get_voice_style),
+    episodes: EpisodeStore | None = Depends(get_episodes),
 ) -> StreamingResponse | Response:
     """Mira tự nói: chào khi mở trang (`greet`) hoặc hỏi thăm khi im lâu (`checkin`). Chưa đến lúc thì trả 204.
 
@@ -524,19 +586,39 @@ async def proactive(
         return Response(status_code=204)
     if req.kind == "greet":
         presence.greeted(now)  # đánh dấu ngay để tải lại trang liên tục không chào nhiều lần
+    if episodes and episodes.due(now):
+        # Lời chào là lúc tóm tắt buổi trước có ích nhất ("hôm qua anh kể..."): chờ xong rồi mới chào (~1,5s)
+        await schedule_episode_close(episodes, llm, turn_log)
     note = ChatTurn(role="user", content=proactive_prompt(req.kind, presence.last_user_at, now))
+
+    async def after_reply(raw: str) -> None:
+        if episodes:  # lời Mira tự nói cũng là một phần buổi trò chuyện (lời nhắc ẩn thì không)
+            episodes.record("assistant", parse_complete(raw).text, datetime.now())
+
     return reply_stream(
-        history=trim_history([*req.messages, note]), system=system_prompt(now, memory.facts() if memory else []),
-        llm=llm, tts=tts, speak=req.voice and tts is not None, turn_log=turn_log, kind=req.kind,
+        history=trim_history([*req.messages, note]), system=build_system(now, memory, episodes),
+        llm=llm, tts=tts, speak=req.voice and tts is not None, turn_log=turn_log, kind=req.kind, style=style,
+        after_text=after_reply,
     )
 
 
 @app.get("/api/memory")
-def list_memory(memory: MemoryStore | None = Depends(get_memory)) -> dict:
-    """Những điều Mira nhớ về người dùng (để xem/xóa trên giao diện)."""
+def list_memory(
+    memory: MemoryStore | None = Depends(get_memory),
+    episodes: EpisodeStore | None = Depends(get_episodes),
+) -> dict:
+    """Những điều Mira nhớ về người dùng và tóm tắt các buổi trò chuyện (để xem/xóa trên giao diện)."""
     if memory is None:
-        return {"enabled": False, "facts": []}
-    return {"enabled": True, "facts": [f.__dict__ for f in memory.facts()]}
+        return {"enabled": False, "facts": [], "episodes": []}
+    return {"enabled": True, "facts": [f.__dict__ for f in memory.facts()],
+            "episodes": [e.__dict__ for e in reversed(episodes.list())] if episodes else []}
+
+
+@app.delete("/api/memory/episodes/{episode_id}")
+def forget_episode(episode_id: str, episodes: EpisodeStore | None = Depends(get_episodes)) -> dict:
+    if episodes is None or not episodes.delete(episode_id):
+        raise HTTPException(404, "Không tìm thấy buổi trò chuyện này.")
+    return {"ok": True}
 
 
 @app.delete("/api/memory/{fact_id}")
@@ -547,9 +629,14 @@ def forget_fact(fact_id: str, memory: MemoryStore | None = Depends(get_memory)) 
 
 
 @app.delete("/api/memory")
-def forget_all(memory: MemoryStore | None = Depends(get_memory)) -> dict:
+def forget_all(
+    memory: MemoryStore | None = Depends(get_memory),
+    episodes: EpisodeStore | None = Depends(get_episodes),
+) -> dict:
     if memory is not None:
         memory.clear()
+    if episodes is not None:
+        episodes.clear()
     return {"ok": True}
 
 

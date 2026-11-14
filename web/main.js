@@ -422,6 +422,7 @@ if (handsFreeSaved) {
 
 const memoryDialog = $("memory-dialog");
 const memoryList = $("memory-list");
+const episodeList = $("episode-list");
 
 async function memoryRequest(url, method = "GET") {
   const res = await fetch(url, { method });
@@ -430,44 +431,57 @@ async function memoryRequest(url, method = "GET") {
   return body;
 }
 
-function memoryRow(fact) {
+const ddmm = (isoDate) => isoDate.split("-").reverse().join("/");
+
+/** Một dòng có nút "Quên": điều đã nhớ hoặc bản tóm tắt một buổi trò chuyện. */
+function memoryRow(list, emptyText, { text, when, url }) {
   const li = document.createElement("li");
-  const text = document.createElement("span");
-  text.textContent = fact.text; // textContent: điều nhớ do model sinh ra, không chèn HTML
+  const span = document.createElement("span");
+  span.textContent = text; // textContent: chữ do model sinh ra, không chèn HTML
   const day = document.createElement("small");
-  day.textContent = fact.said_on.split("-").reverse().join("/");
+  day.textContent = when;
   const forget = document.createElement("button");
   forget.type = "button";
   forget.textContent = "Quên";
   forget.addEventListener("click", async () => {
     try {
-      await memoryRequest(`/api/memory/${encodeURIComponent(fact.id)}`, "DELETE");
+      await memoryRequest(url, "DELETE");
       li.remove();
-      if (!memoryList.children.length) renderMemory([]);
+      if (!list.children.length) fillList(list, [], emptyText);
     } catch (err) {
       addBubble("error", err.message);
     }
   });
-  li.append(text, day, forget);
+  li.append(span, day, forget);
   return li;
 }
 
-function renderMemory(facts, enabled = true) {
-  memoryList.replaceChildren();
-  if (!facts.length) {
+function fillList(list, rows, emptyText) {
+  list.replaceChildren();
+  if (!rows.length) {
     const li = document.createElement("li");
     li.className = "empty";
-    li.textContent = enabled ? "Mira chưa nhớ gì. Kể cho em nghe về anh đi!" : "Trí nhớ đang tắt (MEMORY_ENABLED=false).";
-    memoryList.append(li);
+    li.textContent = emptyText;
+    list.append(li);
     return;
   }
-  memoryList.append(...facts.map(memoryRow));
+  list.append(...rows.map((row) => memoryRow(list, emptyText, row)));
+}
+
+function renderMemory(facts, episodes = [], enabled = true) {
+  const off = "Trí nhớ đang tắt (MEMORY_ENABLED=false).";
+  fillList(memoryList, facts.map((f) => ({
+    text: f.text, when: ddmm(f.said_on), url: `/api/memory/${encodeURIComponent(f.id)}`,
+  })), enabled ? "Mira chưa nhớ gì. Kể cho em nghe về anh đi!" : off);
+  fillList(episodeList, episodes.map((e) => ({
+    text: e.summary, when: `${ddmm(e.date)} ${e.started}`, url: `/api/memory/episodes/${encodeURIComponent(e.id)}`,
+  })), enabled ? "Chưa có buổi nào được tóm tắt." : off);
 }
 
 $("memory-btn").addEventListener("click", async () => {
   try {
-    const { facts, enabled } = await memoryRequest("/api/memory");
-    renderMemory(facts, enabled);
+    const { facts, episodes = [], enabled } = await memoryRequest("/api/memory");
+    renderMemory(facts, episodes, enabled);
     memoryDialog.showModal();
   } catch (err) {
     addBubble("error", `Không đọc được trí nhớ: ${err.message}`);
@@ -475,7 +489,7 @@ $("memory-btn").addEventListener("click", async () => {
 });
 $("memory-close").addEventListener("click", () => memoryDialog.close());
 $("memory-clear").addEventListener("click", async () => {
-  if (!confirm("Mira sẽ quên hết mọi điều anh từng kể. Chắc chưa?")) return;
+  if (!confirm("Mira sẽ quên hết mọi điều anh từng kể và mọi buổi trò chuyện. Chắc chưa?")) return;
   try {
     await memoryRequest("/api/memory", "DELETE");
     renderMemory([]);

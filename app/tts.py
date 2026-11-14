@@ -90,6 +90,7 @@ class VieNeuTTS:
     """VieNeu-TTS v3 Turbo (Apache-2.0) chạy CPU qua ONNX Runtime, stream từng mảnh ~0,32s."""
 
     name = "vieneu"
+    supports_cues = True  # hiểu "[cười]", "[thở dài]", "[hắng giọng]" thành tiếng thật
     segment_pause_s = 0.0  # mỗi câu đã có sẵn ~0,24-0,37s lặng ở cuối
 
     def __init__(self) -> None:

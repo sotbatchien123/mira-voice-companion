@@ -15,3 +15,4 @@ data/
 spikes/audio/models/
 spikes/audio/out/
 spikes/audio/*.log
+spikes/audio/emotion_out/

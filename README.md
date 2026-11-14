@@ -101,6 +101,13 @@ Chi tiết: `specs/002-voice-tts/contracts/chat-sse.md`.
   - `WHISPER_MODEL` (`small`), `WHISPER_DEVICE` (`cpu`; `cuda` cần cuBLAS/cuDNN + VRAM trống), `WHISPER_THREADS` (12).
 
 - Trí nhớ: `MEMORY_ENABLED` (`true` mặc định). Dữ liệu ở `data/memory.json`, không vào git.
+  - Tóm tắt buổi trò chuyện: im quá `EPISODE_GAP_MINUTES` (30) phút thì Mira tự tóm tắt buổi vừa rồi
+    (`data/episodes.json`), lần sau nhớ hai người đã nói gì. Xem/xóa trong nút Trí nhớ.
+  - Sự kiện có ngày cụ thể đã qua quá 14 ngày được tự bỏ khỏi trí nhớ.
+
+- Giọng theo cảm xúc (chỉ VieNeu): `VOICE_EMOTION_CUES` (true: tiếng cười trước câu vui, thở dài trước câu buồn,
+  mỗi loại tối đa 1 lần trong `VOICE_CUE_COOLDOWN_SECONDS` = 120s), `VOICE_EMOTION_SPEED` (true: câu vui phát
+  nhanh/cao hơn 5%, câu buồn chậm/trầm hơn 6%).
 
 - Mira chủ động: `PROACTIVE_GREETING` (true), `GREET_MIN_GAP_MINUTES` (30), `PROACTIVE_CHECKIN_MINUTES` (10, 0 = tắt).
 
@@ -111,6 +118,11 @@ Chi tiết: `specs/002-voice-tts/contracts/chat-sse.md`.
 
 - Lời chào khi mở trang chỉ có chữ nếu trình duyệt chưa cho phát âm thanh (chưa bấm gì vào trang).
 - Model 8B đôi khi tự thêm chi tiết nhỏ khi chào/hỏi thăm dù đã dặn không bịa.
+- Giọng theo cảm xúc chỉ có 3 tín hiệu VieNeu hỗ trợ (cười, thở dài, hắng giọng); đổi tốc độ là đổi cả cao độ. Lúc
+  có tiếng cười/thở dài, miệng nhép theo âm lượng nên cũng cử động trong lúc cười. Model 8B đôi khi gắn cảm xúc lạ
+  (vd [angry] cho câu lo lắng).
+- Tóm tắt buổi trò chuyện do model 8B viết: đôi khi bỏ chi tiết nhỏ. Server tắt trước khi kịp tóm tắt thì lời chào
+  lần sau chờ thêm ~1,5s để tóm tắt bù.
 - Từ đánh thức nhận tên theo chữ STT ghi ra, nên chấp nhận vài cách nghe nhầm ("Vera ơi", "Misa ơi"…). Mở đầu câu bằng
   "Visa ơi"/"Mara ơi" thật cũng sẽ đánh thức Mira; "Ê Mira" đôi khi bị nghe thành "Camera" và bị bỏ qua.
 

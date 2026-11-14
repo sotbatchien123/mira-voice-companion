@@ -52,6 +52,7 @@ class ParsedChunk:
     text: str = ""
     emotions: list[str] = field(default_factory=list)
     ends_with_tag: bool = False  # chuỗi kết thúc ngay sau một tag đã bỏ
+    marks: list[tuple[int, str]] = field(default_factory=list)  # (vị trí trong text, cảm xúc) của từng tag
 
 
 def parse_complete(source: str) -> ParsedChunk:
@@ -62,16 +63,19 @@ def parse_complete(source: str) -> ParsedChunk:
     """
     emotions: list[str] = []
     ends_with_tag = False
-
-    def replace(match: re.Match[str]) -> str:
-        nonlocal ends_with_tag
+    marks: list[tuple[int, str]] = []
+    parts: list[str] = []
+    pos = 0
+    for match in TAG_RE.finditer(source):
+        parts.append(source[pos:match.start()])
+        pos = match.end()
         emotion = ALIASES.get(match.group(1).lower())
         if emotion is not None:
+            marks.append((sum(map(len, parts)), emotion))
             emotions.append(emotion)
         ends_with_tag = match.end() == len(source)
-        return ""
-
-    return ParsedChunk(TAG_RE.sub(replace, source), emotions, ends_with_tag)
+    parts.append(source[pos:])
+    return ParsedChunk("".join(parts), emotions, ends_with_tag, marks)
 
 
 class EmotionTagParser:

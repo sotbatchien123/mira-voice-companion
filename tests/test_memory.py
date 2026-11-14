@@ -196,12 +196,12 @@ def test_api_xem_va_quen(store):
     assert client.delete("/api/memory/khong-co").status_code == 404
     assert [f["text"] for f in client.get("/api/memory").json()["facts"]] == ["Anh nuôi mèo tên Mướp"]
     client.delete("/api/memory")
-    assert client.get("/api/memory").json() == {"enabled": True, "facts": []}
+    assert client.get("/api/memory").json() == {"enabled": True, "facts": [], "episodes": []}
 
 
 def test_tat_tri_nho():
     app.dependency_overrides[get_memory] = lambda: None
-    assert TestClient(app).get("/api/memory").json() == {"enabled": False, "facts": []}
+    assert TestClient(app).get("/api/memory").json() == {"enabled": False, "facts": [], "episodes": []}
 
 
 async def _remember_skips_short(store):
