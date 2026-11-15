@@ -226,6 +226,41 @@ def test_doi_moc_thoi_gian_tuong_doi_thanh_ngay():
     assert resolve_relative_dates("Anh thích mèo", "2026-11-12") == "Anh thích mèo"  # không có mốc thời gian
 
 
+def test_thu_x_nay_da_qua_trong_tuan_thi_la_tuan_toi():
+    from app.memory import resolve_relative_dates
+
+    # 15/11/2026 là Chủ nhật: "thứ Bảy này" là thứ Bảy sắp tới (21/11), không phải hôm qua (14/11)
+    assert resolve_relative_dates("Thứ Bảy này anh đi phỏng vấn", "2026-11-15") == "Thứ Bảy ngày 21/11/2026 anh đi phỏng vấn"
+    # 11/11/2026 là thứ Tư: thứ Hai đã qua -> tuần tới; thứ Tư là chính hôm nay
+    assert resolve_relative_dates("thứ Hai này anh thi", "2026-11-11") == "thứ Hai ngày 16/11/2026 anh thi"
+    assert resolve_relative_dates("thứ Tư này anh bận", "2026-11-11") == "thứ Tư ngày 11/11/2026 anh bận"
+
+
+def test_quen_het_luc_dang_trich_xuat_khong_them_lai(store):
+    """Bấm "Quên hết" trong lúc model đang trích điều đáng nhớ: điều vừa trích không được thêm lại."""
+    import asyncio
+
+    class SlowLLM(FakeLLM):
+        def __init__(self, gate):
+            super().__init__(extracted='{"facts": [{"loai": "ten", "noi_dung": "Anh tên là Khoa"}]}')
+            self.gate = gate
+
+        async def complete(self, messages, *, json_mode=False, max_tokens=256):
+            await self.gate.wait()
+            return await super().complete(messages, json_mode=json_mode, max_tokens=max_tokens)
+
+    async def run():
+        gate = asyncio.Event()
+        task = asyncio.create_task(remember(SlowLLM(gate), store, "Anh tên là Khoa, anh làm kỹ sư", NOW))
+        await asyncio.sleep(0)
+        store.clear()
+        gate.set()
+        return await task
+
+    assert asyncio.run(run())["added"] == 0
+    assert store.facts() == []
+
+
 def test_prompt_dung_ngay_cu_the_cho_su_kien():
     from app.memory import Fact
 

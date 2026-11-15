@@ -549,9 +549,12 @@ def build_system(now: datetime, memory: MemoryStore | None, episodes: EpisodeSto
 
 
 def schedule_episode_close(episodes: EpisodeStore, llm: ChatLLM, turn_log: TurnLog) -> asyncio.Task:
+    # Chụp buổi cũ ngay bây giờ (đồng bộ): task chỉ chạy ở vòng lặp sau, lượt bên gọi ghi ngay sau đây thuộc buổi mới
+    pending = episodes.take_session()
+
     async def run() -> None:
         try:
-            turn_log.write({"kind": "episode", **(await episodes.close(llm))})
+            turn_log.write({"kind": "episode", **(await episodes.summarize(pending, llm))})
         except Exception as err:
             log.warning("tóm tắt buổi trò chuyện thất bại", exc_info=True)
             turn_log.write({"kind": "episode", "summarized": False, "error": type(err).__name__})

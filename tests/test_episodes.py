@@ -103,6 +103,25 @@ def test_luot_moi_chen_vao_luc_dang_tom_tat_khong_mat(store):
     assert store.turns == [("user", "Anh về rồi nè")]
 
 
+def test_quen_het_luc_dang_tom_tat_khong_hoi_sinh(store):
+    """Bấm "Quên hết" trong lúc model đang tóm tắt: bản tóm tắt không được ghi lại, lượt nói sau khi xóa vẫn còn."""
+    chat_session(store)
+
+    async def run():
+        gate = asyncio.Event()
+        task = asyncio.create_task(store.close(FakeLLM(gate=gate)))
+        await asyncio.sleep(0)
+        store.clear()
+        store.record("user", "Anh mới nói sau khi xóa", NOW)
+        gate.set()
+        return await task
+
+    assert asyncio.run(run())["summarized"] is False
+    assert store.list() == []
+    assert store.turns == [("user", "Anh mới nói sau khi xóa")]
+    assert EpisodeStore(store.path).list() == []  # file cũng không có
+
+
 def test_hen_tom_tat_sau_khoang_im(tmp_path, monkeypatch):
     monkeypatch.setenv("EPISODE_GAP_MINUTES", "0")
     store = EpisodeStore(tmp_path / "episodes.json")
@@ -178,6 +197,19 @@ def test_api_chat_ghi_lai_buoi_dang_noi(store, tmp_path):
     res = TestClient(app).post("/api/chat", json={"messages": [{"role": "user", "content": "Anh về rồi nè em"}]})
     assert res.status_code == 200
     assert store.turns == [("user", "Anh về rồi nè em"), ("assistant", "Dạ anh!")]  # không lưu tag cảm xúc
+
+
+def test_api_chat_tin_dau_buoi_moi_khong_bi_gop_vao_buoi_cu(store, tmp_path):
+    """Buổi hôm qua chưa tóm tắt (server vừa bật lại), anh nhắn tin mới: tin đó mở buổi mới, không lọt vào tóm tắt cũ."""
+    chat_session(store)
+    llm = FakeLLM()
+    use(llm, store, Presence(tmp_path / "presence.json"))
+    res = TestClient(app).post("/api/chat", json={"messages": [{"role": "user", "content": "Hôm nay anh được thăng chức"}]})
+    assert res.status_code == 200
+    summary_prompt = next(c for c in llm.complete_calls if "CUỘC TRÒ CHUYỆN" in c)
+    assert "thăng chức" not in summary_prompt and "Con mèo Mướp" in summary_prompt
+    assert [e.summary for e in store.list()] == [SUMMARY]
+    assert store.turns == [("user", "Hôm nay anh được thăng chức"), ("assistant", "Dạ anh!")]
 
 
 def test_api_chao_tom_tat_buoi_truoc_roi_moi_chao(store, tmp_path, monkeypatch):

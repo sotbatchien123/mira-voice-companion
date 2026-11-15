@@ -37,6 +37,14 @@ class Episode:
     summary: str
 
 
+@dataclass
+class PendingClose:
+    """Bản chụp buổi đang nói, chờ model tóm tắt (EpisodeStore.take_session)."""
+    turns: list[tuple[str, str]]
+    started: str | None
+    generation: int
+
+
 SUMMARY_PROMPT = """Đây là một buổi trò chuyện giữa anh (người dùng) và Mira (bạn đồng hành AI).
 Tóm tắt lại trong 1 đến 3 câu ngắn để lần sau Mira nhớ hai người đã nói gì.
 
@@ -106,6 +114,7 @@ class EpisodeStore:
         self.last_at: str | None = None  # iso, lượt gần nhất của buổi đang nói
         self.turns: list[tuple[str, str]] = []
         self._summarizing = False
+        self._generation = 0  # tăng mỗi lần clear(): bản tóm tắt làm dở từ trước lúc xóa thì bỏ đi
         self._timer: asyncio.Task | None = None
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
@@ -149,19 +158,34 @@ class EpisodeStore:
                 return False
             return now - datetime.fromisoformat(self.last_at) >= self.gap
 
-    async def close(self, llm) -> dict:
-        """Tóm tắt buổi đang nói và mở buổi mới. Trả số liệu cho log (không có nội dung)."""
+    def take_session(self) -> PendingClose | None:
+        """Chụp lại buổi đang nói để tóm tắt (đồng bộ). None nếu không có gì hoặc đang tóm tắt dở.
+
+        Phải gọi TRƯỚC khi ghi lượt mới: `asyncio.create_task(close())` chưa chạy ngay, nên lượt ghi ngay sau đó sẽ lọt
+        vào bản chụp và bị tóm tắt vào buổi cũ. Đã nhận bản chụp thì phải gọi `summarize()` (nó mở khóa tóm tắt)."""
         with self._lock:
             if self._summarizing or not self.turns:
-                return {"summarized": False}
+                return None
             self._summarizing = True
-            turns, started = list(self.turns), self.started
+            return PendingClose(list(self.turns), self.started, self._generation)
+
+    async def close(self, llm) -> dict:
+        """Tóm tắt buổi đang nói và mở buổi mới. Trả số liệu cho log (không có nội dung)."""
+        return await self.summarize(self.take_session(), llm)
+
+    async def summarize(self, pending: PendingClose | None, llm) -> dict:
+        if pending is None:
+            return {"summarized": False}
+        turns, started = pending.turns, pending.started
         try:
             user_chars = sum(len(t) for r, t in turns if r == "user")
             summary = ""
             if user_chars >= MIN_USER_CHARS:
                 summary = parse_summary(await llm.complete(summary_messages(turns), json_mode=True, max_tokens=300))
             with self._lock:
+                if self._generation != pending.generation:
+                    # Anh đã bấm "Quên hết" trong lúc chờ model: không ghi lại buổi đã xóa, không đụng lượt nói sau đó
+                    return {"summarized": False, "turns": len(turns), "cleared": True}
                 if summary and started:
                     begin = datetime.fromisoformat(started)
                     self.episodes.append(Episode(uuid.uuid4().hex[:8], f"{begin:%Y-%m-%d}", f"{begin:%H:%M}", summary))
@@ -208,6 +232,7 @@ class EpisodeStore:
     def clear(self) -> None:
         with self._lock:
             self.episodes, self.turns, self.started, self.last_at = [], [], None, None
+            self._generation += 1
             self._write()
 
 

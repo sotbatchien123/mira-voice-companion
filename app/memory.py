@@ -48,6 +48,12 @@ class MemoryStore:
         self.path = path
         self._lock = threading.Lock()
         self._facts = self._read()
+        self._generation = 0  # tăng mỗi lần clear(): điều trích từ trước lúc xóa thì không thêm lại
+
+    @property
+    def generation(self) -> int:
+        with self._lock:
+            return self._generation
 
     def _read(self) -> list[Fact]:
         try:
@@ -70,10 +76,15 @@ class MemoryStore:
         with self._lock:
             return list(self._facts)
 
-    def add(self, items: list[tuple[str, str]], said_on: str) -> dict:
-        """Thêm (loại, câu). Trả {added, replaced} để ghi log (không có nội dung)."""
+    def add(self, items: list[tuple[str, str]], said_on: str, generation: int | None = None) -> dict:
+        """Thêm (loại, câu). Trả {added, replaced} để ghi log (không có nội dung).
+
+        generation: lấy từ `self.generation` trước khi gọi model; khác hiện tại nghĩa là anh đã bấm "Quên hết" trong lúc
+        chờ, nên bỏ qua."""
         added = replaced = 0
         with self._lock:
+            if generation is not None and generation != self._generation:
+                return {"added": 0, "replaced": 0, "cleared": True}
             for kind, text in items:
                 if any(_norm(f.text) == _norm(text) for f in self._facts):
                     continue
@@ -109,6 +120,7 @@ class MemoryStore:
     def clear(self) -> None:
         with self._lock:
             self._facts = []
+            self._generation += 1
             self._write()
 
     def expire_events(self, today: datetime, keep_days: int | None = None) -> int:
@@ -172,6 +184,9 @@ def resolve_relative_dates(text: str, said_on: str) -> str:
         if m.group(3).lower() != "này":
             monday += timedelta(days=7)
         day = monday + timedelta(days=idx)
+        if day < base:
+            # "thứ Bảy này" nói vào Chủ nhật là thứ Bảy sắp tới, không ai dùng "này" cho ngày đã qua trong tuần
+            day += timedelta(days=7)
         return f"{m.group(1)} ngày {day:%d/%m/%Y}"
 
     def simple(m: re.Match[str]) -> str:
@@ -305,8 +320,9 @@ async def remember(llm, store: MemoryStore, message: str, now: datetime) -> dict
     """Trích điều đáng nhớ từ tin của người dùng và lưu lại. Trả số liệu cho log."""
     if len(message.strip()) < MIN_MESSAGE_CHARS:
         return {"added": 0, "replaced": 0, "skipped": True}
+    generation = store.generation
     raw = await llm.complete(extract_messages(message, store.facts()), json_mode=True)
-    return store.add(parse_facts(raw), said_on=now.strftime("%Y-%m-%d"))
+    return store.add(parse_facts(raw), said_on=now.strftime("%Y-%m-%d"), generation=generation)
 
 
 def make_memory(root: Path) -> MemoryStore | None:

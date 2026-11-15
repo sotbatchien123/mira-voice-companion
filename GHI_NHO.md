@@ -14,7 +14,7 @@
   - Frontend phát PCM theo mảnh. Miệng tự cân theo đỉnh âm lượng. Nút "Giọng: bật/tắt". Log `logs/turns.jsonl`.
   - Đo thật: audio đầu 0,53–0,61s, chữ đầu 0,13–0,15s, 0 lỗ hổng khi phát, VRAM không đổi.
   - Miệng nhép trên VRM thật đã kiểm chứng (T013). Người dùng chưa nghe bản chạy trong app.
-- `uv run pytest` hiện là **46/46 pass**.
+- `uv run pytest` hiện là **165/165 pass** (2026-11-15, nhánh `fix/code-review-findings`).
 - **Nghe giọng nói (spec 003):** mặc định **Zipformer-30M** (sherpa-onnx, CPU, model đặt ngoài repo, trỏ bằng `ZIPFORMER_DIR`; máy dev dùng chung bản của VoiceDeck), có Silero VAD chặn im lặng; Whisper `small` làm dự phòng. Nút "Giữ để nói" (hoặc giữ Space khi ô nhập trống), "Rảnh tay" (VAD theo VoiceDeck), người dùng nói thì Mira im. Đo: FLEURS người thật WER 8,8% / 0,18s. **Chưa thử lại mic thật sau khi đổi.**
 - **Trí nhớ dài hạn (spec 004):** `app/memory.py`, `data/memory.json` (gitignored). Model chỉ đề xuất điều mới + loại; code tự thay theo loại (tên, tuổi, nghề, nơi ở, cách gọi) và ghi ngày nói. System prompt có ngày giờ + điều đã nhớ. Lịch sử cắt theo 5000 ký tự. Nút "Trí nhớ" xem/xóa. Kiểm chứng thật đạt hết (`scripts/verify_memory.py`).
 - **Mira chủ động (spec 006):** `app/presence.py`, `POST /api/proactive {kind: greet|checkin}` (204 nếu chưa đến lúc). Chào khi mở trang nếu vắng ≥ 30 phút; hỏi thăm 1 lần khi im ≥ 10 phút (trang hiện, không bận). Mốc thời gian trong trí nhớ được code đổi thành ngày + nhãn đã diễn ra/hôm nay/sắp tới.
@@ -87,6 +87,28 @@ Nguồn: trang chủ và `/privacy` (bản sửa 2026-09-07). Họ không công 
 - Định tuyến nhiều nhà cung cấp cloud (trái local-first).
 
 ## Nhật ký phiên
+
+### 2026-11-15 (lần 27): code review toàn bộ + sửa 3 lỗi trí nhớ
+- Review đọc code `app/` và `web/`. Làm trên nhánh `fix/code-review-findings` (chưa commit, chưa merge).
+- **Đã sửa lỗi 1–3** (viết test đỏ trước, 4 test mới; tổng 165 pass):
+  - `EpisodeStore.take_session()` chụp buổi cũ đồng bộ, `summarize(pending, llm)` gọi model; `schedule_episode_close` chụp ngay trước khi `/api/chat` ghi tin mới.
+  - `EpisodeStore`/`MemoryStore` có `_generation` tăng khi `clear()`; kết quả tóm tắt/trích xuất mang thế hệ cũ thì bỏ (`remember()` chụp `store.generation` trước khi gọi model).
+  - `resolve_relative_dates`: "thứ X này" ra ngày trước ngày nói thì cộng 7.
+  - **Thử thật với qwen3:8b** (server cô lập cổng 8010, bản sao code + `data/` riêng ở thư mục tạm, TTS/STT tắt; server 8000 và `data/` thật không bị đụng):
+    - Lỗi 1: buổi "hôm qua" dựng sẵn + tin "thăng chức": tóm tắt chỉ có chuyện mèo Mướp, buổi mới mở đầu đúng bằng tin thăng chức.
+    - Lỗi 3: Chủ nhật 15/11 nói "Thứ Bảy này anh đi phỏng vấn ở FPT" → prompt ghi "thứ Bảy ngày 21/11/2026 (sắp tới)"; hỏi lại thì Mira trả lời 21/11.
+    - Lỗi 2: gửi tin rồi `DELETE /api/memory` sau 0,4s: log `{"summarized": false, "cleared": true}`, danh sách tóm tắt rỗng.
+    - Thấy thêm (chất lượng model, không phải lỗi code): trả lời tin "thăng chức" bằng "Anh về rồi à… sao hôm nay về sớm vậy?" mà không chúc mừng.
+  - Lưu ý: nếu task tóm tắt bị hủy trước khi kịp chạy (chỉ khi tắt server) thì `_summarizing` kẹt đến lần khởi động sau; không ảnh hưởng vì trạng thái này chỉ nằm trong RAM.
+- Lỗi tìm được (1–3 đã sửa ở trên, 4–5 còn lại):
+  1. `main.py` `/api/chat`: khi buổi cũ đến hạn, `schedule_episode_close` tạo task rồi `episodes.record` tin mới ngay sau → tin đầu của buổi mới bị gộp vào bản tóm tắt buổi cũ và bị xóa khỏi buổi mới. Sửa: chụp lượt cần tóm tắt ngay (đồng bộ) trước khi ghi tin mới.
+  2. `episodes.py` `close()`: bấm "Quên hết" lúc đang tóm tắt thì bản tóm tắt vẫn được ghi lại (và lượt mới sau khi xóa có thể bị cắt). `remember()` cũng có thể thêm lại điều vừa xóa. Sửa: đếm "thế hệ" tăng khi clear, bỏ kết quả cũ.
+  3. `memory.py` `resolve_relative_dates`: "thứ Bảy này" nói vào Chủ nhật thành ngày hôm qua → gắn "(đã diễn ra)" và bị xóa sớm. Sửa: ngày tính ra trước ngày nói thì +7.
+  4. Task nền không giữ tham chiếu (`after_text` khi bị ngắt lời, `schedule_episode_close` trong `/api/chat`).
+  5. `web/main.js`: lỗi LLM thì bỏ tin user khỏi lịch sử nhưng bong bóng vẫn hiện; gửi tin/giọng nói lúc Mira còn đang viết chữ bị bỏ qua lặng lẽ (dễ gặp khi lời chào chờ model nạp nguội).
+- Dọn dẹp: ghi JSON nguyên tử lặp ở 3 store; đọc cờ env lặp 5 chỗ; `episodes.record` ghi lại cả file mỗi lượt trên event loop; Ollama tạo `AsyncClient` mới mỗi lần gọi.
+- Bước tiếp: người dùng thử thật rồi commit/merge nhánh; còn lỗi 4–5 và phần dọn dẹp nếu muốn sửa tiếp.
+- `CV_Projects_AIML.md` ở gốc repo là file CV cá nhân được chép sang khi chuyển phiên, không thuộc dự án: đừng commit.
 
 ### 2026-11-15 (lần 26): chuẩn bị public lên GitHub
 - Rà: lịch sử git không có key/token, chưa từng commit `.env`/model/VRM/`data/`; file lớn nhất 1,5MB (three.js). Clone sạch → `uv sync` → 161 test pass.
