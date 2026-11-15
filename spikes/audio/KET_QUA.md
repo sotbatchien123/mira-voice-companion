@@ -112,7 +112,7 @@ Mẫu nghe thử: `out/vieneu/<tên giọng>.wav`.
 ## Bổ sung 2026-11-14: Zipformer-30M (từ dự án VoiceDeck) so với Whisper small
 
 `bench_asr_compare.py`. Zipformer: `hynt/Zipformer-30M-RNNT-6000h` int8 qua sherpa-onnx 8 luồng, model có sẵn ở
-`D:\voice_models\Zipformer-30M-RNNT-6000h` (license CC-BY-NC-ND-4.0: chỉ dùng cá nhân). Whisper: `WhisperSTT` của app.
+`ZIPFORMER_DIR` (license CC-BY-NC-ND-4.0: chỉ dùng cá nhân). Whisper: `WhisperSTT` của app.
 
 | Bộ dữ liệu | Zipformer WER | Whisper WER | Zipformer trễ | Whisper trễ |
 |---|---|---|---|---|

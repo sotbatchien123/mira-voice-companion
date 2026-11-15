@@ -15,7 +15,7 @@
   - Đo thật: audio đầu 0,53–0,61s, chữ đầu 0,13–0,15s, 0 lỗ hổng khi phát, VRAM không đổi.
   - Miệng nhép trên VRM thật đã kiểm chứng (T013). Người dùng chưa nghe bản chạy trong app.
 - `uv run pytest` hiện là **46/46 pass**.
-- **Nghe giọng nói (spec 003):** mặc định **Zipformer-30M** (sherpa-onnx, CPU, model ở `D:\voice_models\Zipformer-30M-RNNT-6000h` của VoiceDeck), có Silero VAD chặn im lặng; Whisper `small` làm dự phòng. Nút "Giữ để nói" (hoặc giữ Space khi ô nhập trống), "Rảnh tay" (VAD theo VoiceDeck), người dùng nói thì Mira im. Đo: FLEURS người thật WER 8,8% / 0,18s. **Chưa thử lại mic thật sau khi đổi.**
+- **Nghe giọng nói (spec 003):** mặc định **Zipformer-30M** (sherpa-onnx, CPU, model đặt ngoài repo, trỏ bằng `ZIPFORMER_DIR`; máy dev dùng chung bản của VoiceDeck), có Silero VAD chặn im lặng; Whisper `small` làm dự phòng. Nút "Giữ để nói" (hoặc giữ Space khi ô nhập trống), "Rảnh tay" (VAD theo VoiceDeck), người dùng nói thì Mira im. Đo: FLEURS người thật WER 8,8% / 0,18s. **Chưa thử lại mic thật sau khi đổi.**
 - **Trí nhớ dài hạn (spec 004):** `app/memory.py`, `data/memory.json` (gitignored). Model chỉ đề xuất điều mới + loại; code tự thay theo loại (tên, tuổi, nghề, nơi ở, cách gọi) và ghi ngày nói. System prompt có ngày giờ + điều đã nhớ. Lịch sử cắt theo 5000 ký tự. Nút "Trí nhớ" xem/xóa. Kiểm chứng thật đạt hết (`scripts/verify_memory.py`).
 - **Mira chủ động (spec 006):** `app/presence.py`, `POST /api/proactive {kind: greet|checkin}` (204 nếu chưa đến lúc). Chào khi mở trang nếu vắng ≥ 30 phút; hỏi thăm 1 lần khi im ≥ 10 phút (trang hiện, không bận). Mốc thời gian trong trí nhớ được code đổi thành ngày + nhãn đã diễn ra/hôm nay/sắp tới.
 - **Từ đánh thức (spec 007):** `app/wake.py` nhận "Mira ơi" mờ (STT hay nghe thành Vera/Misa/Mara/"mới ra"/Emmira); `/api/stt` trả `wake` và sửa tên về "Mira". Rảnh tay + im > `WAKE_WINDOW_SECONDS` (60) thì câu không gọi tên bị bỏ qua lặng lẽ, ô nhập gợi ý gọi tên. Giữ để nói không bị ảnh hưởng.
@@ -32,7 +32,7 @@
   - Không còn dấu cách đôi; chữ lúc stream và sau khi tải lại trang giống hệt nhau.
   - Xưng hô sai: 1/24 câu (trước khi sửa prompt là 2/24 đến 2/5). Lỗi hay gặp khi người dùng nói "mình". Đổi temperature 0,8 → 0,5 không giúp rõ.
   - Nhớ ngữ cảnh: 3/3 lần đúng, không bịa chuyện của người dùng.
-- **Avatar:** `web/models/waifu.vrm` là `Mira.vrm` người dùng tự làm trong VRoid (VRM 1.0, texture Shrinked ~59MB VRAM, gitignored; bản gốc `.vroid` ở OneDrive\Documents\Model VROID). Tay buông, biểu cảm, chớp mắt, nhép miệng đều đã kiểm chứng (T020, T013). Model có thêm khẩu hình `ee/ih/oh/ou` chưa dùng.
+- **Avatar:** `web/models/waifu.vrm` là `Mira.vrm` người dùng tự làm trong VRoid (VRM 1.0, texture Shrinked ~59MB VRAM, gitignored; bản gốc `.vroid` giữ riêng trên máy người dùng). Tay buông, biểu cảm, chớp mắt, nhép miệng đều đã kiểm chứng (T020, T013). Model có thêm khẩu hình `ee/ih/oh/ou` chưa dùng.
 - Spec Kit 1.4.0: `constitution.md`, `spec.md`, `plan.md`, `research.md`, `contracts/`, `quickstart.md`, `tasks.md`.
 - **Ollama 0.40.16**: app tray báo timeout, server không lên. Đang chạy được bằng `ollama serve` mở tay. Đã pull **qwen3:8b** (5,2GB, Q4_K_M).
 - Lưu ý: `--reload` của uvicorn không theo dõi `.env`; sửa `.env` thì phải khởi động lại server. Sau `uv sync` (đổi nhiều file trong `.venv`), bộ reload có thể đứng: code mới không được nạp. Kiểm tra bằng `/api/health` hoặc khởi động lại server. Trên Windows, kết nối tới cổng chưa mở mất khoảng 2 giây mới báo lỗi (hành vi của TCP, không phải bug).
@@ -88,6 +88,13 @@ Nguồn: trang chủ và `/privacy` (bản sửa 2026-09-07). Họ không công 
 
 ## Nhật ký phiên
 
+### 2026-11-15 (lần 26): chuẩn bị public lên GitHub
+- Rà: lịch sử git không có key/token, chưa từng commit `.env`/model/VRM/`data/`; file lớn nhất 1,5MB (three.js). Clone sạch → `uv sync` → 161 test pass.
+- Thêm `LICENSE` (MIT), `license = "MIT"` trong pyproject, bảng license thành phần trong README. Lưu ý: `piper-tts` bản mới là **GPL-3.0** (chỉ là gói phụ thuộc, không nằm trong repo); Zipformer **CC-BY-NC-ND** → dùng thương mại phải đổi sang Whisper.
+- Gỡ đường dẫn riêng của máy (ổ D, OneDrive, AppData, thư mục người dùng) khỏi tài liệu và spike; bản cũ vẫn còn trong lịch sử git.
+- Chưa làm (cần người dùng quyết): email thật trong tác giả commit (muốn ẩn phải viết lại lịch sử, dùng email noreply của GitHub); tạo repo và push.
+- Chạy online cả ngày: app là một người dùng (trí nhớ, presence dùng chung), cần GPU cho LLM. Đề xuất: máy nhà bật 24/7 + Tailscale (HTTPS, chỉ thiết bị của mình). Không mở công khai khi chưa có đăng nhập.
+
 ### 2026-11-14 (lần 25): spec 008 giọng theo cảm xúc + spec 009 trí nhớ sâu hơn
 - VieNeu v3 Turbo chỉ có `[cười]`, `[thở dài]`, `[hắng giọng]`, không có tham số tốc độ. Đo: cười +0,9s, thở dài +0,5s, STT không nghe ra chữ (là tiếng thật). Mẫu nghe ở `spikes/audio/emotion_out/` (gitignored).
 - Test bắt lỗi cũ: tag `[sad]` đến ngay sau dấu chấm làm câu trước bị gán buồn (bộ tách câu chờ 1 ký tự). Sửa: `ParsedChunk.marks` + `SpeechSegmenter.cut()`; test với 3 kiểu chia mảnh (cả câu, từng từ, từng ký tự).
@@ -104,7 +111,7 @@ Nguồn: trang chủ và `/privacy` (bản sửa 2026-09-07). Họ không công 
 - Chưa thử với mic thật/TV thật trong phòng.
 
 ### 2026-11-14 (lần 23): xem lại VoiceDeck vừa được sửa
-- VoiceDeck (`D:\VoiceDeck`, chưa có commit git) vừa được làm lại:
+- VoiceDeck (dự án riêng của người dùng, chưa có commit git) vừa được làm lại:
   - Áp dụng Spec Kit; sửa số nói bằng chữ → chữ số; giữ dấu truy vấn YouTube.
   - `ASR_ALIASES` (DU TUYẾT → youtube…); bỏ `audioop`; bỏ đường dẫn cứng ổ D; cổng CDP động. 101/101 test.
   - Còn mở: chế độ tự nghe chưa có từ đánh thức (câu nói thường kích hoạt lệnh).
@@ -165,8 +172,8 @@ Nguồn: trang chủ và `/privacy` (bản sửa 2026-09-07). Họ không công 
 - Test 65 → 83. `verify_memory.py` đạt hết; trình duyệt: xem, quên 1 điều, quên hết đều đúng. Dữ liệu thử đã xóa.
 
 ### 2026-11-14 (lần 17): học từ VoiceDeck để nhận dạng tốt hơn
-- Người dùng thử mic thật: nghe được nhưng nhận dạng còn sai. Tham khảo dự án VoiceDeck của người dùng (`D:\VoiceDeck`; thư mục `OneDrive\Documents\Buds 3` chỉ còn shortcut).
-- VoiceDeck dùng Zipformer-30M-RNNT-6000h (tiếng Việt, sherpa-onnx, CPU). Model có sẵn ở `D:\voice_models\Zipformer-30M-RNNT-6000h`; bộ VietSuperSpeech đã bị xóa.
+- Người dùng thử mic thật: nghe được nhưng nhận dạng còn sai. Tham khảo dự án VoiceDeck của người dùng.
+- VoiceDeck dùng Zipformer-30M-RNNT-6000h (tiếng Việt, sherpa-onnx, CPU). Model có sẵn trên máy (ngoài repo); bộ VietSuperSpeech đã bị xóa.
 - So trên giọng người thật (FLEURS, 40 câu): **Zipformer WER 9,2% / 0,27s** so với **Whisper 23,2% / 2,68s**. Trên 15 câu VieNeu: 2,9% so với 13%. Số liệu ở `spikes/audio/KET_QUA.md`.
 - Người dùng đồng ý → đã làm:
   - `ZipformerSTT` mặc định, `.env` trỏ `ZIPFORMER_DIR` tới model của VoiceDeck.
@@ -265,7 +272,7 @@ Nguồn: trang chủ và `/privacy` (bản sửa 2026-09-07). Họ không công 
 - **LLM:** `qwen3:4b-instruct` dùng 3,1GB VRAM, nhanh, đủ tag. `qwen3:4b` là bản chỉ-suy-nghĩ → đã `ollama rm`.
 - **VRAM nền** (Windows, app) khoảng 2GB. `qwen3:8b` cộng F5 không vừa 8GB.
 - **Chưa làm:** chưa ai nghe bằng tai các file trong `spikes/audio/out/`; chưa thử giọng thật qua mic; chưa đo riêng VRAM của Whisper GPU.
-- **Cache:** torch cu128 (2,6GB) và các model nằm trong cache của uv/HF. Cache uv của app Claude bị Windows chuyển hướng sang `AppData\Local\Packages\Claude_…\LocalCache`. Dọn bằng `uv cache clean` nếu cần chỗ.
+- **Cache:** torch cu128 (2,6GB) và các model nằm trong cache của uv/HF. Cache uv khi chạy trong app Claude có thể bị Windows chuyển hướng vào thư mục package của app. Dọn bằng `uv cache clean` nếu cần chỗ.
 
 ### 2026-11-13 (lần 8): Ollama tự chạy khi đăng nhập
 - Người dùng đồng ý. Tạo `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\ollama-serve.vbs`, chạy ẩn `ollama serve`. Xóa file này để tắt.
@@ -281,14 +288,14 @@ Nguồn: trang chủ và `/privacy` (bản sửa 2026-09-07). Họ không công 
 - Test 24 → 27, pass hết. Chạy thật:
   - Tắt Ollama thì `/api/health` và trang báo đúng câu lỗi.
   - Bật lại thì hết báo lỗi, chat chạy bình thường.
-- App tray Ollama: tắt rồi mở lại vẫn không bật được server. `server.log` trống, app log báo "timeout waiting for Ollama server to be ready". Nghi do đường dẫn có dấu cách (`ASUS G615`) nhưng chưa chứng minh. `ollama serve` chạy tay thì ổn.
+- App tray Ollama: tắt rồi mở lại vẫn không bật được server. `server.log` trống, app log báo "timeout waiting for Ollama server to be ready". Nghi do đường dẫn thư mục người dùng có dấu cách nhưng chưa chứng minh. `ollama serve` chạy tay thì ổn.
 
 ### 2026-11-13 (lần 6): rà soát cuối, xác định lại kế hoạch
 - Đo VRAM: `qwen3:8b` chiếm 5,59GB, tổng đang dùng 7,39/8,15GB → kế hoạch audio phải chạy CPU hoặc đổi LLM nhỏ. Viết lại "Việc tiếp theo" theo ràng buộc này.
 - Phát hiện: lower bound `anthropic>=1.0` sai, getter `hasModel` không dùng, context Ollama 4096 token. Chưa sửa, chờ người dùng.
 
 ### 2026-11-13 (lần 5): kế hoạch TTS sai, rà soát toàn dự án
-- Kế hoạch TTS trước đó có nhiều thông tin bịa: repo `mozilla/common_voice_client`, script GPT-SoVITS, "Whisper API của Anthropic", Common Voice VI 100h. Tải Common Voice thất bại cả 2 cách. Đã xóa thư mục `C:\Users\ASUS G615\tts_data` (chỉ có script/log sai). Đã chạy `uv sync` để gỡ các gói `datasets`, `librosa`… cài nhầm vào `.venv`.
+- Kế hoạch TTS trước đó có nhiều thông tin bịa: repo `mozilla/common_voice_client`, script GPT-SoVITS, "Whisper API của Anthropic", Common Voice VI 100h. Tải Common Voice thất bại cả 2 cách. Đã xóa thư mục `tts_data` (chỉ có script/log sai). Đã chạy `uv sync` để gỡ các gói `datasets`, `librosa`… cài nhầm vào `.venv`.
 - Người dùng chốt: TTS và STT đều local, Whisper `small`, muốn giọng riêng. Đã dọn 63,5GB ổ C.
 - Rà soát: kiểm chứng thật T017 và nhớ ngữ cảnh. Sửa lại báo cáo phiên 4 cho đúng (T017 trước đó chỉ dựa vào unit test).
 - Đã sửa theo kết quả rà soát:

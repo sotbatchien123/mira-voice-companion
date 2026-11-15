@@ -96,7 +96,7 @@ Chi tiết: `specs/002-voice-tts/contracts/chat-sse.md`.
 - Nghe giọng nói:
   - `STT_PROVIDER`: `zipformer` (mặc định), `whisper` hoặc `none`.
   - `ZIPFORMER_DIR`: thư mục model Zipformer-30M-RNNT-6000h (CC-BY-NC-ND-4.0, chỉ dùng cá nhân); mặc định `models/zipformer`,
-    tải bằng `uv run python scripts/get_stt_model.py`. Máy này dùng bản có sẵn của VoiceDeck ở `D:\voice_models\Zipformer-30M-RNNT-6000h`.
+    tải bằng `uv run python scripts/get_stt_model.py`. Đã có model ở chỗ khác thì trỏ `ZIPFORMER_DIR` tới đó.
   - Khi dùng Whisper:
   - `WHISPER_MODEL` (`small`), `WHISPER_DEVICE` (`cpu`; `cuda` cần cuBLAS/cuDNN + VRAM trống), `WHISPER_THREADS` (12).
 
@@ -126,8 +126,7 @@ Chi tiết: `specs/002-voice-tts/contracts/chat-sse.md`.
 - Từ đánh thức nhận tên theo chữ STT ghi ra, nên chấp nhận vài cách nghe nhầm ("Vera ơi", "Misa ơi"…). Mở đầu câu bằng
   "Visa ơi"/"Mara ơi" thật cũng sẽ đánh thức Mira; "Ê Mira" đôi khi bị nghe thành "Camera" và bị bỏ qua.
 
-- Giọng chưa đổi theo cảm xúc của câu (VieNeu có tag `[cười]`… đang thử nghiệm, chưa dùng). Giọng riêng là spec 004
-  (VieNeu bắt chước được giọng từ mẫu 3–8s).
+- Chưa có giọng riêng cho Mira (VieNeu bắt chước được giọng từ mẫu 3–8s, cần một giọng mẫu có quyền dùng).
 - Câu trả lời dài giữ CPU bận tạo giọng (~0,45 giây cho mỗi giây audio).
 - Nghe giọng nói đo trên giọng người thật (FLEURS): sai ~9% số từ. Chưa đo bằng mic laptop của người dùng sau khi đổi sang Zipformer. Chế độ rảnh tay
   dựa vào khử tiếng vọng của trình duyệt: dùng tai nghe sẽ chắc ăn hơn.
@@ -139,3 +138,23 @@ Chi tiết: `specs/002-voice-tts/contracts/chat-sse.md`.
 - Thêm `?debug=1` vào địa chỉ trang để lộ `window.__mira.avatar` khi cần đo/gỡ lỗi.
 - Model local nhỏ đôi khi quên tag cảm xúc hoặc tự chế tag (vd `[concerned]`). Tag tự chế hay gặp được quy về cảm xúc gần nhất
   (`app/emotion_tags.py`, `ALIASES`), tag lạ còn lại bị bỏ đi để không hiện ra hay bị đọc thành tiếng.
+
+## License
+
+Mã nguồn của dự án: [MIT](LICENSE).
+
+Model và thư viện **không nằm trong repo**: được tải về máy lúc cài đặt và theo license riêng của chúng.
+
+| Thành phần | Dùng cho | License |
+| --- | --- | --- |
+| [three.js](https://github.com/mrdoob/three.js) 0.187, [three-vrm](https://github.com/pixiv/three-vrm) 3.5.5 (vendor trong `web/vendor/`) | Hiển thị 3D, VRM | MIT |
+| [VieNeu-TTS](https://github.com/pnnbao97/VieNeu-TTS) v3 Turbo | Giọng nói (mặc định) | Apache-2.0 |
+| [piper-tts](https://github.com/OHF-voice/piper1-gpl) + giọng `vi_VN-vais1000-medium` | Giọng nói (dự phòng) | GPL-3.0 (thư viện) / CC-BY-4.0 (giọng) |
+| [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) | Chạy Zipformer | Apache-2.0 |
+| [Zipformer-30M-RNNT-6000h](https://huggingface.co/hynt/Zipformer-30M-RNNT-6000h) | Nghe giọng nói (mặc định) | **CC-BY-NC-ND-4.0: chỉ dùng phi thương mại** |
+| [faster-whisper](https://github.com/SYSTRAN/faster-whisper) + Whisper `small`, Silero VAD | Nghe giọng nói (dự phòng), lọc im lặng | MIT |
+| [Qwen3](https://huggingface.co/Qwen/Qwen3-8B) qua [Ollama](https://ollama.com) | "Não" local (mặc định) | Apache-2.0 / MIT |
+
+Muốn dùng cho mục đích thương mại thì đổi bộ nghe giọng nói sang Whisper (`STT_PROVIDER=whisper`), vì license của
+Zipformer không cho phép. Model nhân vật VRM là của người dùng tự làm/tự chọn, không đi kèm repo.
+

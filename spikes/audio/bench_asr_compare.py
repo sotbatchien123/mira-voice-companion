@@ -8,6 +8,7 @@ Lưu ý: FLEURS có trong danh sách dữ liệu huấn luyện của Zipformer 
 import io
 import random
 import re
+import os
 import sys
 import time
 from pathlib import Path
@@ -23,7 +24,7 @@ from app.stt import WhisperSTT  # noqa: E402
 
 PARQUET_URL = "https://huggingface.co/api/datasets/google/fleurs/parquet/vi_vn/test/0.parquet"
 CACHE = ROOT / "spikes" / "audio" / "models" / "fleurs_vi_test.parquet"
-ZIP_DIR = Path(r"D:\voice_models\Zipformer-30M-RNNT-6000h")
+ZIP_DIR = Path(os.getenv("ZIPFORMER_DIR", str(ROOT / "models" / "zipformer")))
 RATE = 16000
 
 

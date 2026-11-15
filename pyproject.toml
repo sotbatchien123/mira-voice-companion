@@ -2,6 +2,7 @@
 name = "mira-voice-companion"
 version = "0.2.0"
 description = "Mira – 3D Vietnamese Voice Companion: nhân vật VRM trên web, trò chuyện bằng giọng nói tiếng Việt chạy local"
+license = "MIT"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "anthropic>=2.8",  # cần httpx2 + tham số fallbacks
