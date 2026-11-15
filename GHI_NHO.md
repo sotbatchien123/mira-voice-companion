@@ -92,7 +92,9 @@ Nguồn: trang chủ và `/privacy` (bản sửa 2026-09-07). Họ không công 
 - Rà: lịch sử git không có key/token, chưa từng commit `.env`/model/VRM/`data/`; file lớn nhất 1,5MB (three.js). Clone sạch → `uv sync` → 161 test pass.
 - Thêm `LICENSE` (MIT), `license = "MIT"` trong pyproject, bảng license thành phần trong README. Lưu ý: `piper-tts` bản mới là **GPL-3.0** (chỉ là gói phụ thuộc, không nằm trong repo); Zipformer **CC-BY-NC-ND** → dùng thương mại phải đổi sang Whisper.
 - Gỡ đường dẫn riêng của máy (ổ D, OneDrive, AppData, thư mục người dùng) khỏi tài liệu và spike; bản cũ vẫn còn trong lịch sử git.
-- Chưa làm (cần người dùng quyết): email thật trong tác giả commit (muốn ẩn phải viết lại lịch sử, dùng email noreply của GitHub); tạo repo và push.
+- Người dùng chọn "Ẩn email rồi push": viết lại 10 commit sang email noreply GitHub (`git filter-branch`), đặt `user.email` của repo thành noreply. Sao lưu trước khi viết lại: file bundle nằm cạnh thư mục dự án (`Waifu_chat-backup-truoc-doi-email.bundle`), xóa được khi đã yên tâm.
+- **Đã public:** https://github.com/sotbatchien123/mira-voice-companion (nhánh `main`, GitHub nhận license MIT). Kiểm tra trên GitHub: mọi commit dùng email noreply, không có `.env`/model/VRM/`data/`.
+- Còn (người dùng tự làm trong cài đặt GitHub): hồ sơ công khai vẫn hiện email thật; nên bật "Keep my email addresses private" + "Block command line pushes that expose my email".
 - Chạy online cả ngày: app là một người dùng (trí nhớ, presence dùng chung), cần GPU cho LLM. Đề xuất: máy nhà bật 24/7 + Tailscale (HTTPS, chỉ thiết bị của mình). Không mở công khai khi chưa có đăng nhập.
 
 ### 2026-11-14 (lần 25): spec 008 giọng theo cảm xúc + spec 009 trí nhớ sâu hơn
