@@ -125,13 +125,13 @@ $("clear-btn").addEventListener("click", () => {
  * Một lượt Mira nói: hiện chữ dần, phát giọng, lưu vào lịch sử. Dùng chung cho trả lời tin nhắn và lời Mira tự nói.
  * @returns {Promise<boolean>} true nếu Mira đã nói (false khi server báo chưa đến lúc hoặc lỗi)
  */
-async function runMiraTurn({ url = "/api/chat", extra = {}, speak, pending = true }) {
+async function runMiraTurn({ url = "/api/chat", extra = {}, speak, pending = true, userBubble = null, userText = "" }) {
   let bubble = pending ? addBubble("assistant", "…") : null; // lời tự nói: chỉ hiện bong bóng khi có chữ thật
   let shown = "";
-  const turn = (inFlight = { controller: new AbortController(), textSaved: false });
+  // pending: trả lời tin của anh (false = Mira tự chào/hỏi thăm, tin của anh được chen ngang)
+  const turn = (inFlight = { controller: new AbortController(), textSaved: false, pending });
   const { controller } = turn;
   let voiceFailed = false;
-  sendBtn.disabled = true;
   player.stop(); // câu cũ đang đọc dở thì dừng
   if (speak) player.unlock();
   avatar.setTalking(!speak);
@@ -140,8 +140,8 @@ async function runMiraTurn({ url = "/api/chat", extra = {}, speak, pending = tru
     turn.textSaved = true;
     history.push({ role: "assistant", content: raw });
     saveHistory();
-    sendBtn.disabled = false;
     lastActivity = Date.now(); // đếm lại khoảng im từ lúc Mira nói xong, nhưng KHÔNG cho hỏi thăm lần nữa
+    setTimeout(sendQueued); // tin anh gửi lúc Mira đang viết: gửi ngay bây giờ
   };
   try {
     const raw = await streamChat(
@@ -176,9 +176,18 @@ async function runMiraTurn({ url = "/api/chat", extra = {}, speak, pending = tru
     // Bị ngắt sau khi chữ đã lưu (người dùng gửi tin mới lúc Mira còn nói): giữ nguyên câu trả lời
     if (!turn.textSaved) {
       bubble?.remove();
-      if (!controller.signal.aborted && pending) addBubble("error", err.message);
-      // Bỏ lượt user chưa có trả lời để lịch sử luôn xen kẽ user/assistant
-      if (url === "/api/chat" && history.at(-1)?.role === "user") history.pop();
+      // Bỏ lượt user chưa có trả lời để lịch sử luôn xen kẽ user/assistant; bỏ cả bong bóng của nó cho khớp,
+      // và trả chữ về ô nhập để anh gửi lại (không thì tải lại trang là tin biến mất)
+      const dropped = url === "/api/chat" && history.at(-1)?.role === "user";
+      if (dropped) {
+        history.pop();
+        userBubble?.remove();
+        if (!input.value.trim()) input.value = userText;
+      }
+      if (!controller.signal.aborted && pending) {
+        addBubble("error", dropped && userText ? `${err.message} (tin của anh vẫn ở ô nhập, gửi lại nha)` : err.message);
+        setQueued(false); // "não" đang lỗi: đừng tự gửi tiếp tin đang chờ
+      }
       saveHistory();
     }
     return false;
@@ -186,11 +195,27 @@ async function runMiraTurn({ url = "/api/chat", extra = {}, speak, pending = tru
     if (inFlight === turn) {
       inFlight = null;
       lastExchange = Date.now(); // vừa có lượt trò chuyện: nói tiếp không cần gọi tên
-      sendBtn.disabled = false;
       avatar.setTalking(false);
       if (pending) input.focus();
+      setTimeout(sendQueued);
     }
   }
+}
+
+// Tin gửi lúc Mira còn đang viết câu trả lời: giữ trong ô nhập và gửi ngay khi viết xong (trước đây bị bỏ qua lặng lẽ;
+// nút Gửi bị khóa nên Enter cũng không làm gì)
+let queued = false;
+
+function setQueued(on) {
+  queued = on;
+  sendBtn.textContent = on ? "Chờ Mira…" : "Gửi";
+  sendBtn.title = on ? "Mira đang trả lời dở, viết xong em gửi tin này ngay" : "";
+}
+
+function sendQueued() {
+  if (!queued) return;
+  setQueued(false);
+  if (input.value.trim()) form.requestSubmit();
 }
 
 form.addEventListener("submit", async (e) => {
@@ -198,18 +223,22 @@ form.addEventListener("submit", async (e) => {
   const text = input.value.trim();
   if (!text) return;
   if (inFlight) {
-    // Chữ của lượt trước đã xong (chỉ còn đang tạo/đọc giọng) thì cho ngắt lời; còn đang viết chữ thì chờ
-    if (!inFlight.textSaved) return;
+    if (!inFlight.textSaved && inFlight.pending) {
+      setQueued(true); // đang trả lời tin trước của anh: chờ viết xong rồi gửi
+      return;
+    }
+    // Chữ đã xong (chỉ còn đọc giọng), hoặc Mira đang tự chào/hỏi thăm (có thể treo lâu khi model nạp nguội):
+    // tin của anh được ưu tiên
     inFlight.controller.abort();
   }
   input.value = "";
   markActivity();
   lastExchange = Date.now();
-  addBubble("user", text);
+  const userBubble = addBubble("user", text);
   history.push({ role: "user", content: text });
   saveHistory();
   // đang trong cú bấm/phím của người dùng nên trình duyệt cho phát âm thanh
-  await runMiraTurn({ speak: voiceOn });
+  await runMiraTurn({ speak: voiceOn, userBubble, userText: text });
 });
 
 // ---------- Mira chủ động: chào khi mở trang, hỏi thăm khi im lâu ----------
@@ -324,7 +353,8 @@ async function transcribeAndSend(pcm, requireWake = false) {
       input.placeholder = "Không nghe rõ, anh nói lại nha...";
       return;
     }
-    input.value = body.text;
+    const draft = input.value.trim();
+    input.value = draft ? `${draft} ${body.text}` : body.text; // đã có chữ đang chờ gửi thì nối thêm, không ghi đè
     form.requestSubmit(); // gửi như khi gõ: cùng luật chờ/ngắt lời, cùng lịch sử
   } catch (err) {
     addBubble("error", err.message);

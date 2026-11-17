@@ -183,6 +183,18 @@ def warm_llm_in_background(llm: ChatLLM) -> None:
     task.add_done_callback(_llm_warming.discard)
 
 
+_background: set[asyncio.Task] = set()
+
+
+def run_in_background(coro: Awaitable) -> asyncio.Task:
+    """Chạy việc nền mà không ai chờ (ghi nhớ, tóm tắt). Event loop chỉ giữ task bằng tham chiếu yếu: không giữ ở đây
+    thì GC có thể dọn task giữa chừng khi nó đang chờ mạng."""
+    task = asyncio.ensure_future(coro)
+    _background.add(task)
+    task.add_done_callback(_background.discard)
+    return task
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Nạp sẵn giọng (VieNeu ~8s) và tai (Whisper ~2s) ở nền để lượt nói/nghe đầu không bị chậm
@@ -449,12 +461,13 @@ def reply_stream(
                 # Chữ xong rồi: client lưu lịch sử và cho gửi tin mới ngay, không phải chờ đọc hết giọng
                 out.put_nowait(sse({"type": "text_done", **final}))
                 # Việc sau chữ (ghi nhớ, GPU) chạy song song với tạo giọng (CPU)
-                extra = asyncio.create_task(after_text(final["raw"])) if after_text else None
+                # Chạy nền: anh ngắt lời (đóng kết nối) thì produce bị hủy, nhưng việc ghi nhớ vẫn phải chạy xong
+                extra = run_in_background(after_text(final["raw"])) if after_text else None
                 if speaker:
                     speaker.feed(last)
                     await speaker.finish()
                 if extra:
-                    await extra
+                    await asyncio.shield(extra)  # hủy produce không được hủy lây sang việc ghi nhớ
                 out.put_nowait(sse({"type": "done", **final}))
             except Exception as err:  # báo lỗi cho người dùng thay vì cắt kết nối im lặng
                 log.exception("%s failed", kind)
@@ -559,7 +572,7 @@ def schedule_episode_close(episodes: EpisodeStore, llm: ChatLLM, turn_log: TurnL
             log.warning("tóm tắt buổi trò chuyện thất bại", exc_info=True)
             turn_log.write({"kind": "episode", "summarized": False, "error": type(err).__name__})
 
-    return asyncio.create_task(run())
+    return run_in_background(run())
 
 
 class ProactiveRequest(BaseModel):
