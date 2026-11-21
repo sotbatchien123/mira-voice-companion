@@ -125,7 +125,9 @@ class EpisodeStore:
         except FileNotFoundError:
             pass
         except (ValueError, TypeError, AttributeError, IndexError):
-            log.warning("file %s hỏng, bắt đầu lại", path)
+            path.replace(path.with_suffix(path.suffix + ".bad"))  # để còn cứu tay, đừng để lần ghi sau đè mất
+            log.warning("file %s hỏng, cất bản hỏng ra .bad rồi bắt đầu lại", path)
+            self.episodes, self.started, self.last_at, self.turns = [], None, None, []
 
     def _write(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -182,6 +184,8 @@ class EpisodeStore:
             summary = ""
             if user_chars >= MIN_USER_CHARS:
                 summary = parse_summary(await llm.complete(summary_messages(turns), json_mode=True, max_tokens=300))
+                if not summary:  # model trả sai dạng: giữ buổi lại, lần im sau thử tóm tắt lại
+                    return {"summarized": False, "turns": len(turns), "error": "bad_summary"}
             with self._lock:
                 if self._generation != pending.generation:
                     # Anh đã bấm "Quên hết" trong lúc chờ model: không ghi lại buổi đã xóa, không đụng lượt nói sau đó

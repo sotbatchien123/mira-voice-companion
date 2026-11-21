@@ -14,7 +14,7 @@
   - Frontend phát PCM theo mảnh. Miệng tự cân theo đỉnh âm lượng. Nút "Giọng: bật/tắt". Log `logs/turns.jsonl`.
   - Đo thật: audio đầu 0,53–0,61s, chữ đầu 0,13–0,15s, 0 lỗ hổng khi phát, VRAM không đổi.
   - Miệng nhép trên VRM thật đã kiểm chứng (T013). Người dùng chưa nghe bản chạy trong app.
-- `uv run pytest` hiện là **167/167 pass** (2026-11-18).
+- `uv run pytest` hiện là **173/173 pass** (2026-11-21).
 - **Nghe giọng nói (spec 003):** mặc định **Zipformer-30M** (sherpa-onnx, CPU, model đặt ngoài repo, trỏ bằng `ZIPFORMER_DIR`; máy dev dùng chung bản của VoiceDeck), có Silero VAD chặn im lặng; Whisper `small` làm dự phòng. Nút "Giữ để nói" (hoặc giữ Space khi ô nhập trống), "Rảnh tay" (VAD theo VoiceDeck), người dùng nói thì Mira im. Đo: FLEURS người thật WER 8,8% / 0,18s. **Chưa thử lại mic thật sau khi đổi.**
 - **Trí nhớ dài hạn (spec 004):** `app/memory.py`, `data/memory.json` (gitignored). Model chỉ đề xuất điều mới + loại; code tự thay theo loại (tên, tuổi, nghề, nơi ở, cách gọi) và ghi ngày nói. System prompt có ngày giờ + điều đã nhớ. Lịch sử cắt theo 5000 ký tự. Nút "Trí nhớ" xem/xóa. Kiểm chứng thật đạt hết (`scripts/verify_memory.py`).
 - **Mira chủ động (spec 006):** `app/presence.py`, `POST /api/proactive {kind: greet|checkin}` (204 nếu chưa đến lúc). Chào khi mở trang nếu vắng ≥ 30 phút; hỏi thăm 1 lần khi im ≥ 10 phút (trang hiện, không bận). Mốc thời gian trong trí nhớ được code đổi thành ngày + nhãn đã diễn ra/hôm nay/sắp tới.
@@ -46,7 +46,7 @@
 - **Hợp giao cho Antigravity** (luật chung ở `AGENTS.md`; mỗi agent một nhánh, không sửa trùng file):
   - Quay GIF/video demo cho README.
   - Tìm file chuyển động VRMA có license rõ ràng, chuẩn bị cho bước body animation.
-  - Dọn backend (`app/`): ghi JSON an toàn đang lặp ở 3 store; đọc biến môi trường lặp ở 5 chỗ; `episodes.record` ghi cả file trên event loop; Ollama tạo `AsyncClient` mới mỗi lần gọi.
+  - Dọn backend (`app/`), mục 6–10 của audit lần 30: gộp ghi JSON an toàn (3 store) thành một hàm; gộp đọc biến môi trường (6 chỗ); ghi lượt của anh vào buổi trò chuyện sau khi có trả lời (tránh ghi đôi khi gửi lại); `warm_llm_in_background` dùng lại `run_in_background`; chuyển `piper-tts` (GPL) sang nhóm tùy chọn. Bỏ khỏi danh sách: `AsyncClient` mỗi lần gọi và `episodes.record` trên event loop (đo theo lý thuyết không gây chậm thật).
   - Viết README tiếng Anh.
 - **Người dùng tự làm:** thử mic và loa thật; nghe giọng theo cảm xúc; ẩn email trên hồ sơ GitHub; chuyển `CV_Projects_AIML.md` ra khỏi repo.
 - **Chưa kiểm chứng thật:** hẹn giờ tóm tắt buổi sau 30 phút im.
@@ -99,6 +99,17 @@ Nguồn: trang chủ và `/privacy` (bản sửa 2026-09-07). Họ không công 
 - Định tuyến nhiều nhà cung cấp cloud (trái local-first).
 
 ## Nhật ký phiên
+
+### 2026-11-21 (lần 30): audit toàn repo (ponytail) + sửa 5 lỗi đầu
+- Người dùng bật ponytail (thay đổi nhỏ nhất, trả lời gọn) cho dự án. Audit đọc kỹ `app/` và `web/`; chưa đọc kỹ `spikes/`, `.specify/`, `scripts/`, `wake.py`, `lipsync.js`. 11 phát hiện, sửa 1–5 trên nhánh `fix/audit-1-5` (tách từ `chore/agents-md-obsidian`).
+  1. **Bị ngắt lời mà Mira vẫn nói tiếp** khi chữ chưa xong: `player.stop()` chỉ xóa đoạn đang phát, đoạn audio tới sau vẫn được phát. Sửa: `interruptMira` đặt `inFlight.muted`, `onAudio` bỏ qua. Đo trong trình duyệt (mic giả bằng oscillator, `/api/chat` giả gửi 16 đoạn): code cũ phát thêm 9 đoạn sau khi ngắt, code mới 0.
+  2. **Lịch sử chat phình mãi + một lượt cũ > 4000 ký tự làm mọi lượt sau 422.** Trình duyệt chỉ gửi 41 lượt (server dùng 40; dư 1 để server vẫn bỏ lời Mira mồ côi ở đầu như trước), chỉ lưu 500 lượt. Server cắt lượt cũ quá dài, chỉ từ chối tin mới nhất. Đo: gửi 41, lưu 500, tin mới 5000 ký tự vẫn 422.
+  3. **File dữ liệu hỏng bị lần ghi sau đè mất:** `memory.json`, `episodes.json`, `presence.json` hỏng thì được đổi tên thành `*.json.bad` rồi mới bắt đầu rỗng. (Hỏng lần nữa thì `.bad` cũ bị thay.)
+  4. **Tóm tắt trả sai dạng thì cả buổi bị vứt:** giờ giữ buổi lại, lần im sau thử lại (log `error: bad_summary`).
+  5. **DNS rebinding đọc được `/api/memory`:** thêm `TrustedHostMiddleware`, biến `ALLOWED_HOSTS` (mặc định `localhost,127.0.0.1,[::1]`; dùng Tailscale thì thêm tên máy). `tests/conftest.py` thêm `testserver`. Đo bằng curl trên server thật: Host lạ 400, localhost 200.
+- Test 167 → 173 (6 test mới, 5 test đỏ trước khi sửa; lỗi 1 không có test JS nên đo đỏ/xanh trong trình duyệt).
+- Lúc mở trang để thử, app tự chào thật (Ollama) một lần như bình thường: lời chào đó nằm trong lịch sử trình duyệt (14 lượt) và buổi trò chuyện. Lịch sử và cài đặt Rảnh tay đã trả về như trước khi thử.
+- Còn lại của audit (mục 6–11) ghi ở "Việc tiếp theo". Chưa kiểm: không có `.env` thì Ollama có bật chế độ suy nghĩ của qwen3 không (code mặc định không gửi `think`).
 
 ### 2026-11-21 (lần 29): AGENTS.md cho nhiều agent, mở repo bằng Obsidian
 - Bản sửa lỗi 4–5 đã gộp vào `main` (fast-forward) và push, `main` ở `9948b89`, 167 test pass.

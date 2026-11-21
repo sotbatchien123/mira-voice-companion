@@ -1,4 +1,9 @@
+import os
+
 import pytest
+
+# TestClient gửi Host "testserver"; app chỉ nhận tên máy cho phép (chặn DNS rebinding), nên thêm vào trước khi import app
+os.environ.setdefault("ALLOWED_HOSTS", "localhost,127.0.0.1,testserver")
 
 from app.main import (app, get_episodes, get_memory, get_presence, get_stt, get_tts, get_turn_log,
                       get_voice_style)

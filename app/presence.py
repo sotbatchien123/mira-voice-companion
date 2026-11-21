@@ -36,7 +36,8 @@ class Presence:
         except FileNotFoundError:
             pass
         except (ValueError, AttributeError):
-            log.warning("file %s hỏng, bắt đầu lại", path)
+            path.replace(path.with_suffix(path.suffix + ".bad"))  # để còn cứu tay, đừng để lần ghi sau đè mất
+            log.warning("file %s hỏng, cất bản hỏng ra .bad rồi bắt đầu lại", path)
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)

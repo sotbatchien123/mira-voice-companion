@@ -122,3 +122,23 @@ def test_phuc_vu_frontend(client):
     assert client.head("/models/khong-ton-tai.vrm").status_code == 404
     # trình duyệt phải hỏi lại server, không được dùng main.js cũ sau khi cập nhật app
     assert client.get("/main.js").headers["cache-control"] == "no-cache"
+
+
+def test_luot_cu_qua_dai_khong_khoa_ca_cuoc_tro_chuyen(client):
+    """Audit #2: một câu cũ > 4000 ký tự (vd Claude trả lời dài) từng làm mọi lượt sau bị 422 cho tới khi xóa chat."""
+    llm = use(FakeLLM(["ok"]))
+    turns = [{"role": "user", "content": "kể dài đi"}, {"role": "assistant", "content": "a" * 5000},
+             {"role": "user", "content": "tiếp nha"}]
+    assert client.post("/api/chat", json={"messages": turns}).status_code == 200
+    assert all(len(t["content"]) <= 4000 for t in llm.received)
+
+
+def test_tin_moi_qua_dai_van_bao_loi(client):
+    use(FakeLLM(["ok"]))
+    assert client.post("/api/chat", json={"messages": [{"role": "user", "content": "a" * 5000}]}).status_code == 422
+
+
+def test_chan_ten_mien_la_tro_ve_may(client):
+    """Audit #5: DNS rebinding, trang lạ trỏ tên miền của nó về 127.0.0.1 để đọc /api/memory."""
+    assert TestClient(app, base_url="http://evil.example").get("/api/memory").status_code == 400
+    assert TestClient(app, base_url="http://localhost:8000").get("/api/memory").status_code == 200

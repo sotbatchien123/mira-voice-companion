@@ -62,7 +62,8 @@ class MemoryStore:
         except FileNotFoundError:
             return []
         except (ValueError, TypeError, AttributeError):
-            log.warning("file trí nhớ %s hỏng, bắt đầu lại rỗng", self.path)  # không chặn app
+            self.path.replace(self.path.with_suffix(self.path.suffix + ".bad"))  # để còn cứu tay, đừng để lần ghi sau đè mất
+            log.warning("file trí nhớ %s hỏng, cất bản hỏng ra .bad rồi bắt đầu lại rỗng", self.path)  # không chặn app
             return []
 
     def _write(self) -> None:

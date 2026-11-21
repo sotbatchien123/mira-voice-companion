@@ -239,3 +239,24 @@ def test_api_xem_xoa_buoi_tro_chuyen(store, tmp_path):
     asyncio.run(store.close(FakeLLM()))
     client.delete("/api/memory")  # quên hết: cả tóm tắt
     assert store.list() == []
+
+
+def test_file_hong_duoc_giu_lai(tmp_path):
+    path = tmp_path / "episodes.json"
+    path.write_text("{hỏng", encoding="utf-8")
+    EpisodeStore(path).record("user", "Anh về rồi", NOW)
+    assert (tmp_path / "episodes.json.bad").read_text(encoding="utf-8") == "{hỏng"
+
+
+def test_tom_tat_hong_thi_giu_buoi_de_thu_lai(store):
+    """Audit #4: model trả JSON sai khóa -> tóm tắt rỗng; trước đây các lượt vẫn bị xóa, mất cả buổi."""
+    chat_session(store)
+
+    class WrongKeyLLM(FakeLLM):
+        async def complete(self, messages, *, json_mode=False, max_tokens=256):
+            return '{"summary": "sai khóa"}'
+
+    assert asyncio.run(store.close(WrongKeyLLM()))["summarized"] is False
+    assert len(store.turns) == 3
+    assert asyncio.run(store.close(FakeLLM()))["summarized"] is True  # lần im sau thử lại được
+    assert store.turns == []

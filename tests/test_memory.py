@@ -276,3 +276,12 @@ def test_nhan_da_dien_ra_hom_nay_sap_toi():
     assert event_status("Anh thi vào ngày 14/11/2026", NOW) == " (là hôm nay)"
     assert event_status("Anh thi vào ngày 20/11/2026", NOW) == " (sắp tới)"
     assert event_status("Anh thích mèo", NOW) == ""
+
+
+def test_file_hong_duoc_giu_lai_khong_bi_ghi_de(tmp_path):
+    """Audit #3: trước đây lần ghi kế tiếp đè lên file hỏng, mất hết điều đã nhớ."""
+    path = tmp_path / "memory.json"
+    path.write_text('{"facts": [{"id": "1", "kind": "ten", "text": "Anh tên Khoa"', encoding="utf-8")
+    store = MemoryStore(path)
+    store.add([("so_thich", "Anh thích mèo")], "2026-11-21")
+    assert (tmp_path / "memory.json.bad").read_text(encoding="utf-8").startswith('{"facts"')

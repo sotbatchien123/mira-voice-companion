@@ -5,6 +5,10 @@ import { MicError, MicRecorder } from "./mic.js";
 
 const DEFAULT_MODEL_URL = "/models/waifu.vrm";
 const HISTORY_KEY = "waifu-chat-history";
+// Server chỉ dùng 40 lượt (MAX_HISTORY trong app/main.py); gửi dư 1 để server biết lịch sử bị cắt và bỏ lời Mira
+// mồ côi ở đầu như trước
+const SEND_TURNS = 41;
+const KEEP_TURNS = 500; // localStorage có giới hạn ~5MB: lưu mãi thì vài tháng sau không lưu được nữa
 const VOICE_KEY = "waifu-voice";
 const HANDSFREE_KEY = "waifu-handsfree";
 // Bỏ tag khi hiển thị lại lịch sử cũ (lịch sử lưu bản gốc còn tag)
@@ -96,6 +100,7 @@ function loadHistory() {
   }
 }
 function saveHistory() {
+  if (history.length > KEEP_TURNS) history = history.slice(-KEEP_TURNS);
   localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
 }
 
@@ -145,7 +150,7 @@ async function runMiraTurn({ url = "/api/chat", extra = {}, speak, pending = tru
   };
   try {
     const raw = await streamChat(
-      history,
+      history.slice(-SEND_TURNS),
       {
         onText: (t) => {
           shown += t;
@@ -156,7 +161,9 @@ async function runMiraTurn({ url = "/api/chat", extra = {}, speak, pending = tru
         onEmotion: (em) => {
           if (!speak || voiceFailed) avatar.setEmotion(em);
         },
-        onAudio: (segment) => player.enqueue(segment),
+        onAudio: (segment) => {
+          if (!turn.muted) player.enqueue(segment); // anh đã ngắt lời: phần giọng tới sau không được phát nữa
+        },
         onVoiceError: (message) => {
           voiceFailed = true;
           avatar.setTalking(true);
@@ -335,6 +342,7 @@ const mic = new MicRecorder({
 /** Người dùng bắt đầu nói: Mira im ngay, và nếu chữ đã xong thì dừng luôn việc tạo giọng còn lại. */
 function interruptMira() {
   player.stop();
+  if (inFlight) inFlight.muted = true; // chữ vẫn viết tiếp, nhưng giọng của lượt này dừng hẳn
   if (inFlight?.textSaved) inFlight.controller.abort();
 }
 

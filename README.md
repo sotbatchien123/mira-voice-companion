@@ -114,6 +114,10 @@ Chi tiết: `specs/002-voice-tts/contracts/chat-sse.md`.
 - Từ đánh thức cho Rảnh tay: `HANDSFREE_WAKE_WORD` (true), `WAKE_WINDOW_SECONDS` (60). Đã im quá 60 giây thì phải mở đầu
   bằng "Mira ơi / Mira à / Này Mira / Ê Mira…" Mira mới trả lời; đang trò chuyện hoặc giữ để nói thì không cần.
 
+- `ALLOWED_HOSTS` (mặc định `localhost,127.0.0.1,[::1]`): server chỉ nhận request gửi tới các tên máy này, để trang web
+  lạ không đọc được trí nhớ qua DNS rebinding. Mở từ máy khác (vd Tailscale) thì thêm tên máy đó, vd
+  `localhost,127.0.0.1,may-nha.tail1234.ts.net`.
+
 ## Giới hạn hiện tại
 
 - Lời chào khi mở trang chỉ có chữ nếu trình duyệt chưa cho phát âm thanh (chưa bấm gì vào trang).

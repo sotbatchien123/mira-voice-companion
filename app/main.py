@@ -10,6 +10,7 @@ import base64
 import functools
 import json
 import logging
+import os
 import threading
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
@@ -24,6 +25,7 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from pydantic import BaseModel, Field, field_validator
 
 from .emotion_tags import EmotionTagParser, ParsedChunk, parse_complete
@@ -50,12 +52,26 @@ MAX_MESSAGE_CHARS = 4000
 
 class ChatTurn(BaseModel):
     role: Literal["user", "assistant"]
-    content: str = Field(min_length=1, max_length=MAX_MESSAGE_CHARS)
+    content: str = Field(min_length=1)
+
+    @field_validator("content")
+    @classmethod
+    def clip(cls, v: str) -> str:
+        # Lượt cũ trong lịch sử do app tạo ra (vd Claude trả lời dài): cắt bớt, đừng từ chối cả request
+        return v[:MAX_MESSAGE_CHARS]
 
 
 class ChatRequest(BaseModel):
     messages: list[ChatTurn] = Field(min_length=1)
     voice: bool = False
+
+    @field_validator("messages", mode="before")
+    @classmethod
+    def new_message_not_too_long(cls, v):
+        last = v[-1] if isinstance(v, list) and v else None
+        if isinstance(last, dict) and len(str(last.get("content", ""))) > MAX_MESSAGE_CHARS:
+            raise ValueError(f"tin nhắn dài quá {MAX_MESSAGE_CHARS} ký tự")
+        return v
 
     @field_validator("messages")
     @classmethod
@@ -208,6 +224,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Mira – 3D Vietnamese Voice Companion", lifespan=lifespan)
+# Trang web lạ có thể trỏ tên miền của nó về 127.0.0.1 (DNS rebinding) để đọc /api/memory: chỉ nhận đúng tên máy này
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=[
+    h.strip() for h in os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1,[::1]").split(",") if h.strip()])
 
 
 @app.get("/api/health")
