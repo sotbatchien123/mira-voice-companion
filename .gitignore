@@ -16,3 +16,5 @@ spikes/audio/models/
 spikes/audio/out/
 spikes/audio/*.log
 spikes/audio/emotion_out/
+# Ghi chú Obsidian (cấu hình vault riêng của máy)
+.obsidian/

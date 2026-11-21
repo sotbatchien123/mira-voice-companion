@@ -40,6 +40,18 @@
 
 ## Việc tiếp theo
 
+**Cập nhật 2026-11-21** (danh sách đang dùng; kế hoạch 13/11 bên dưới giữ làm lịch sử):
+
+- **Đang làm (Claude Code):** chuyển động đầu theo giọng nói (spec 010, chỉ sửa `web/`). Mới đọc xong `web/avatar.js`, chưa sửa. Hiện đã có: dáng đầu theo cảm xúc, nghiêng khi lắng nghe, gật 0,035 rad mỗi âm tiết.
+- **Hợp giao cho Antigravity** (luật chung ở `AGENTS.md`; mỗi agent một nhánh, không sửa trùng file):
+  - Quay GIF/video demo cho README.
+  - Tìm file chuyển động VRMA có license rõ ràng, chuẩn bị cho bước body animation.
+  - Dọn backend (`app/`): ghi JSON an toàn đang lặp ở 3 store; đọc biến môi trường lặp ở 5 chỗ; `episodes.record` ghi cả file trên event loop; Ollama tạo `AsyncClient` mới mỗi lần gọi.
+  - Viết README tiếng Anh.
+- **Người dùng tự làm:** thử mic và loa thật; nghe giọng theo cảm xúc; ẩn email trên hồ sơ GitHub; chuyển `CV_Projects_AIML.md` ra khỏi repo.
+- **Chưa kiểm chứng thật:** hẹn giờ tóm tắt buổi sau 30 phút im.
+- **Để sau:** body animation (VRMA); `start.bat` + tự chạy + Tailscale; giọng riêng (spec 004 cũ); nhiều người dùng; graphify.
+
 Kế hoạch đề xuất sau rà soát 2026-11-13 (chờ người dùng chốt):
 
 **Ràng buộc chính:** khi `qwen3:8b` đã nạp, VRAM dùng 7,39/8,15GB, chỉ còn khoảng 0,76GB. TTS và STT không chạy thêm trên GPU được, trừ khi đổi sang LLM nhỏ hơn.
@@ -87,6 +99,14 @@ Nguồn: trang chủ và `/privacy` (bản sửa 2026-09-07). Họ không công 
 - Định tuyến nhiều nhà cung cấp cloud (trái local-first).
 
 ## Nhật ký phiên
+
+### 2026-11-21 (lần 29): AGENTS.md cho nhiều agent, mở repo bằng Obsidian
+- Bản sửa lỗi 4–5 đã gộp vào `main` (fast-forward) và push, `main` ở `9948b89`, 167 test pass.
+- Tìm hiểu DiffPoseTalk (SIGGRAPH 2024): sinh biểu cảm + chuyển động đầu bằng diffusion, ra tham số FLAME. Không hợp với Mira: repo không có LICENSE, FLAME chỉ cho phi thương mại, phải tự chuyển FLAME sang VRM, không real-time, VRAM không đủ. Thư viện dùng được với VRM: `@pixiv/three-vrm-animation` (MIT, cho thân người); wLipSync (MIT) không hơn cách nhép môi hiện tại, vì Mira đã biết trước chữ sắp đọc. Chốt: làm chuyển động đầu bằng JS trước.
+- **`AGENTS.md`** (mới): luật chung cho mọi agent, gồm tiếng Việt, đọc/ghi GHI_NHO, Spec Kit, TDD, các file không được commit, quy tắc khi nhiều agent làm song song. Antigravity tự đọc `AGENTS.md` (theo tài liệu antigravity.google/docs/rules, chưa thử trong app). **`CLAUDE.md`** (mới) chỉ có `@AGENTS.md` để Claude Code nạp cùng file đó.
+- **Obsidian:** đã cài từ trước nhưng chưa mở vault nào. Đã đăng ký repo làm vault (tên "Waifu_chat") và mở thử được. `.obsidian/app.json` bỏ qua `data/`, `logs/`, `models/`, `web/vendor/`, file CV. `.obsidian/` đã thêm vào `.gitignore` (git xác nhận bị bỏ qua).
+- Sửa "Việc tiếp theo": thêm danh sách cập nhật 21/11, danh sách 13/11 giữ làm lịch sử.
+- Chưa commit.
 
 ### 2026-11-18 (lần 28): sửa lỗi 4–5 của code review
 - Nhánh `fix/background-tasks-and-ui`. Làm theo TDD (superpowers): thấy đỏ trước rồi mới sửa.
