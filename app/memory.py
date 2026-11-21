@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import threading
 import unicodedata
@@ -18,6 +17,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from .persona import SYSTEM_PROMPT
+from .util import env_flag, write_json
 
 log = logging.getLogger("waifu")
 
@@ -67,11 +67,7 @@ class MemoryStore:
             return []
 
     def _write(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps({"facts": [asdict(f) for f in self._facts]}, ensure_ascii=False, indent=1),
-                       encoding="utf-8")
-        tmp.replace(self.path)  # ghi nguyên tử: tắt máy giữa chừng không làm hỏng file
+        write_json(self.path, {"facts": [asdict(f) for f in self._facts]})
 
     def facts(self) -> list[Fact]:
         with self._lock:
@@ -327,6 +323,6 @@ async def remember(llm, store: MemoryStore, message: str, now: datetime) -> dict
 
 
 def make_memory(root: Path) -> MemoryStore | None:
-    if os.getenv("MEMORY_ENABLED", "true").strip().lower() in ("false", "0", "off", "no"):
+    if not env_flag("MEMORY_ENABLED"):
         return None
     return MemoryStore(root / "data" / "memory.json")

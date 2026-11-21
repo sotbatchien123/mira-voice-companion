@@ -9,27 +9,21 @@ Hai núm, đều bật/tắt được trong .env:
 
 from __future__ import annotations
 
-import os
 import threading
 import time
 from typing import Callable
+
+from .util import env_flag, env_number
 
 CUES = {"happy": "[cười]", "sad": "[thở dài]"}
 SPEEDS = {"happy": 1.05, "surprised": 1.05, "sad": 0.94}
 
 
-def _flag(name: str, default: bool = True) -> bool:
-    return os.getenv(name, "true" if default else "false").strip().lower() not in ("false", "0", "off", "no")
-
-
 class VoiceStyle:
     def __init__(self, clock: Callable[[], float] = time.monotonic) -> None:
-        self.cues = _flag("VOICE_EMOTION_CUES")
-        self.speed = _flag("VOICE_EMOTION_SPEED")
-        try:
-            self.cooldown_s = max(0.0, float(os.getenv("VOICE_CUE_COOLDOWN_SECONDS", "120")))
-        except ValueError:
-            self.cooldown_s = 120.0
+        self.cues = env_flag("VOICE_EMOTION_CUES")
+        self.speed = env_flag("VOICE_EMOTION_SPEED")
+        self.cooldown_s = env_number("VOICE_CUE_COOLDOWN_SECONDS", 120.0)
         self._clock = clock
         self._last: dict[str, float] = {}
         self._lock = threading.Lock()

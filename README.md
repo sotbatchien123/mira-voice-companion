@@ -22,7 +22,7 @@ Cần [uv](https://docs.astral.sh/uv/) (quản lý Python 3.12 + thư viện cho
    - **Claude:** đặt `LLM_PROVIDER=claude` và điền `ANTHROPIC_API_KEY` trong `.env`.
 4. Giọng nói: mặc định **VieNeu-TTS v3 Turbo** (Apache-2.0, CPU, không tốn VRAM), giọng `Mỹ Duyên`. Lần chạy đầu
    tự tải model từ Hugging Face rồi nạp (~10s mỗi lần bật server). Nút **Giọng: bật/tắt** trên trang; lựa chọn được nhớ.
-   Muốn dùng Piper (nhẹ hơn, giọng cứng hơn): `TTS_PROVIDER=piper` rồi `uv run python scripts/get_voice.py`.
+   Muốn dùng Piper (nhẹ hơn, giọng cứng hơn): `uv sync --extra piper`, `TTS_PROVIDER=piper` rồi `uv run python scripts/get_voice.py`.
 5. Có model nhân vật: tạo bằng **VRoid Studio** → Export → VRM, rồi đặt vào `web/models/waifu.vrm`
    (hoặc kéo thả file `.vrm` vào trang web).
 6. `uv run uvicorn app.main:app --reload --port 8000` → mở http://localhost:8000
@@ -153,7 +153,7 @@ Model và thư viện **không nằm trong repo**: được tải về máy lúc
 | --- | --- | --- |
 | [three.js](https://github.com/mrdoob/three.js) 0.187, [three-vrm](https://github.com/pixiv/three-vrm) 3.5.5 (vendor trong `web/vendor/`) | Hiển thị 3D, VRM | MIT |
 | [VieNeu-TTS](https://github.com/pnnbao97/VieNeu-TTS) v3 Turbo | Giọng nói (mặc định) | Apache-2.0 |
-| [piper-tts](https://github.com/OHF-voice/piper1-gpl) + giọng `vi_VN-vais1000-medium` | Giọng nói (dự phòng) | GPL-3.0 (thư viện) / CC-BY-4.0 (giọng) |
+| [piper-tts](https://github.com/OHF-voice/piper1-gpl) + giọng `vi_VN-vais1000-medium` | Giọng nói (dự phòng, chỉ cài khi chạy `uv sync --extra piper`) | GPL-3.0 (thư viện) / CC-BY-4.0 (giọng) |
 | [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) | Chạy Zipformer | Apache-2.0 |
 | [Zipformer-30M-RNNT-6000h](https://huggingface.co/hynt/Zipformer-30M-RNNT-6000h) | Nghe giọng nói (mặc định) | **CC-BY-NC-ND-4.0: chỉ dùng phi thương mại** |
 | [faster-whisper](https://github.com/SYSTRAN/faster-whisper) + Whisper `small`, Silero VAD | Nghe giọng nói (dự phòng), lọc im lặng | MIT |

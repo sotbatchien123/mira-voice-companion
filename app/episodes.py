@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import threading
 import uuid
 from dataclasses import asdict, dataclass
@@ -18,6 +17,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from .memory import event_status, part_of_day, resolve_relative_dates
+from .util import env_flag, env_number, write_json
 
 log = logging.getLogger("waifu")
 
@@ -108,7 +108,7 @@ class EpisodeStore:
     def __init__(self, path: Path) -> None:
         self.path = path
         self._lock = threading.Lock()
-        self.gap = timedelta(minutes=_minutes("EPISODE_GAP_MINUTES", 30))
+        self.gap = timedelta(minutes=env_number("EPISODE_GAP_MINUTES", 30.0))
         self.episodes: list[Episode] = []
         self.started: str | None = None  # iso, lúc buổi đang nói bắt đầu
         self.last_at: str | None = None  # iso, lượt gần nhất của buổi đang nói
@@ -130,12 +130,8 @@ class EpisodeStore:
             self.episodes, self.started, self.last_at, self.turns = [], None, None, []
 
     def _write(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        data = {"episodes": [asdict(e) for e in self.episodes],
-                "current": {"started": self.started, "last_at": self.last_at, "turns": [list(t) for t in self.turns]}}
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
-        tmp.replace(self.path)
+        write_json(self.path, {"episodes": [asdict(e) for e in self.episodes], "current": {
+            "started": self.started, "last_at": self.last_at, "turns": [list(t) for t in self.turns]}})
 
     def list(self) -> list[Episode]:
         with self._lock:
@@ -240,14 +236,7 @@ class EpisodeStore:
             self._write()
 
 
-def _minutes(name: str, default: float) -> float:
-    try:
-        return max(0.0, float(os.getenv(name, str(default))))
-    except ValueError:
-        return default
-
-
 def make_episodes(root: Path) -> EpisodeStore | None:
-    if os.getenv("MEMORY_ENABLED", "true").strip().lower() in ("false", "0", "off", "no"):
+    if not env_flag("MEMORY_ENABLED"):
         return None
     return EpisodeStore(root / "data" / "episodes.json")

@@ -5,28 +5,22 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from .util import env_flag, env_number, write_json
+
 log = logging.getLogger("waifu")
-
-
-def _minutes(name: str, default: int) -> int:
-    try:
-        return max(0, int(os.getenv(name, str(default))))
-    except ValueError:
-        return default
 
 
 class Presence:
     def __init__(self, path: Path) -> None:
         self.path = path
         self._lock = threading.Lock()
-        self.greeting = os.getenv("PROACTIVE_GREETING", "true").strip().lower() not in ("false", "0", "off", "no")
-        self.greet_min_gap = timedelta(minutes=_minutes("GREET_MIN_GAP_MINUTES", 30))
-        self.checkin_minutes = _minutes("PROACTIVE_CHECKIN_MINUTES", 10)  # 0 = tắt
+        self.greeting = env_flag("PROACTIVE_GREETING")
+        self.greet_min_gap = timedelta(minutes=env_number("GREET_MIN_GAP_MINUTES", 30))
+        self.checkin_minutes = env_number("PROACTIVE_CHECKIN_MINUTES", 10)  # 0 = tắt
         self.last_user_at: datetime | None = None
         self.last_greet_at: datetime | None = None
         try:
@@ -40,11 +34,8 @@ class Presence:
             log.warning("file %s hỏng, cất bản hỏng ra .bad rồi bắt đầu lại", path)
 
     def _save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        data = {"last_user_at": _iso(self.last_user_at), "last_greet_at": _iso(self.last_greet_at)}
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data), encoding="utf-8")
-        tmp.replace(self.path)
+        write_json(self.path, {"last_user_at": _iso(self.last_user_at), "last_greet_at": _iso(self.last_greet_at)},
+                   indent=None)
 
     def user_spoke(self, now: datetime) -> None:
         with self._lock:

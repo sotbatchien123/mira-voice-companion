@@ -688,11 +688,15 @@ dependencies = [
     { name = "fastapi" },
     { name = "faster-whisper" },
     { name = "httpx" },
-    { name = "piper-tts" },
     { name = "python-dotenv" },
     { name = "sherpa-onnx" },
     { name = "uvicorn", extra = ["standard"] },
     { name = "vieneu" },
+]
+
+[package.optional-dependencies]
+piper = [
+    { name = "piper-tts" },
 ]
 
 [package.dev-dependencies]
@@ -706,12 +710,13 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
     { name = "faster-whisper", specifier = ">=1.1" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "piper-tts", specifier = ">=1.8" },
+    { name = "piper-tts", marker = "extra == 'piper'", specifier = ">=1.8" },
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "sherpa-onnx", specifier = ">=1.12" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
     { name = "vieneu", specifier = ">=3.8" },
 ]
+provides-extras = ["piper"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=8" }]

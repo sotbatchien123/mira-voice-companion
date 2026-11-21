@@ -246,3 +246,12 @@ def test_health_bao_trang_thai_giong():
     app.dependency_overrides[get_tts] = lambda: None
     voice = client.get("/api/health").json()["voice"]
     assert voice["engine"] is None and voice["ok"] is False
+
+
+def test_piper_chua_cai_thu_vien(tmp_path, monkeypatch):
+    """Audit #10: piper-tts (GPL) giờ là phần cài thêm, thiếu thì báo đúng lệnh cài."""
+    voice = tmp_path / "giong.onnx"
+    voice.write_bytes(b"")
+    voice.with_suffix(".onnx.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr("app.tts.importlib.util.find_spec", lambda name: None)
+    assert "uv sync --extra piper" in PiperTTS(voice_path=voice).check()

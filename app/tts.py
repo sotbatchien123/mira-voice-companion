@@ -60,6 +60,8 @@ class PiperTTS:
     def check(self) -> str | None:
         if not self.voice_path.exists() or not self.voice_path.with_suffix(".onnx.json").exists():
             return f"Chưa có file giọng {self.voice_path.name}. Chạy: uv run python scripts/get_voice.py"
+        if importlib.util.find_spec("piper") is None:
+            return "Chưa cài thư viện giọng Piper (phần cài thêm, license GPL-3.0). Chạy: uv sync --extra piper"
         return None
 
     def _load(self):

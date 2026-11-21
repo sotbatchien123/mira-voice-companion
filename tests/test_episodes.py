@@ -260,3 +260,17 @@ def test_tom_tat_hong_thi_giu_buoi_de_thu_lai(store):
     assert len(store.turns) == 3
     assert asyncio.run(store.close(FakeLLM()))["summarized"] is True  # lần im sau thử lại được
     assert store.turns == []
+
+
+def test_api_chat_loi_thi_khong_ghi_luot_cua_anh(store, tmp_path):
+    """Audit #8: "não" lỗi thì trình duyệt trả chữ về ô nhập để anh gửi lại; trước đây server đã ghi lượt đó, gửi lại
+    thành ghi hai lần trong buổi trò chuyện."""
+
+    class BrokenLLM(FakeLLM):
+        async def stream(self, history, system=None):
+            raise RuntimeError("Ollama chưa bật")
+            yield  # pragma: no cover
+
+    use(BrokenLLM(), store, Presence(tmp_path / "presence.json"))
+    TestClient(app).post("/api/chat", json={"messages": [{"role": "user", "content": "Anh về rồi nè em"}]})
+    assert store.turns == []

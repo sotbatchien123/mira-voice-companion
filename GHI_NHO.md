@@ -14,7 +14,7 @@
   - Frontend phát PCM theo mảnh. Miệng tự cân theo đỉnh âm lượng. Nút "Giọng: bật/tắt". Log `logs/turns.jsonl`.
   - Đo thật: audio đầu 0,53–0,61s, chữ đầu 0,13–0,15s, 0 lỗ hổng khi phát, VRAM không đổi.
   - Miệng nhép trên VRM thật đã kiểm chứng (T013). Người dùng chưa nghe bản chạy trong app.
-- `uv run pytest` hiện là **173/173 pass** (2026-11-21).
+- `uv run pytest` hiện là **175/175 pass** (2026-11-21).
 - **Nghe giọng nói (spec 003):** mặc định **Zipformer-30M** (sherpa-onnx, CPU, model đặt ngoài repo, trỏ bằng `ZIPFORMER_DIR`; máy dev dùng chung bản của VoiceDeck), có Silero VAD chặn im lặng; Whisper `small` làm dự phòng. Nút "Giữ để nói" (hoặc giữ Space khi ô nhập trống), "Rảnh tay" (VAD theo VoiceDeck), người dùng nói thì Mira im. Đo: FLEURS người thật WER 8,8% / 0,18s. **Chưa thử lại mic thật sau khi đổi.**
 - **Trí nhớ dài hạn (spec 004):** `app/memory.py`, `data/memory.json` (gitignored). Model chỉ đề xuất điều mới + loại; code tự thay theo loại (tên, tuổi, nghề, nơi ở, cách gọi) và ghi ngày nói. System prompt có ngày giờ + điều đã nhớ. Lịch sử cắt theo 5000 ký tự. Nút "Trí nhớ" xem/xóa. Kiểm chứng thật đạt hết (`scripts/verify_memory.py`).
 - **Mira chủ động (spec 006):** `app/presence.py`, `POST /api/proactive {kind: greet|checkin}` (204 nếu chưa đến lúc). Chào khi mở trang nếu vắng ≥ 30 phút; hỏi thăm 1 lần khi im ≥ 10 phút (trang hiện, không bận). Mốc thời gian trong trí nhớ được code đổi thành ngày + nhãn đã diễn ra/hôm nay/sắp tới.
@@ -46,7 +46,7 @@
 - **Hợp giao cho Antigravity** (luật chung ở `AGENTS.md`; mỗi agent một nhánh, không sửa trùng file):
   - Quay GIF/video demo cho README.
   - Tìm file chuyển động VRMA có license rõ ràng, chuẩn bị cho bước body animation.
-  - Dọn backend (`app/`), mục 6–10 của audit lần 30: gộp ghi JSON an toàn (3 store) thành một hàm; gộp đọc biến môi trường (6 chỗ); ghi lượt của anh vào buổi trò chuyện sau khi có trả lời (tránh ghi đôi khi gửi lại); `warm_llm_in_background` dùng lại `run_in_background`; chuyển `piper-tts` (GPL) sang nhóm tùy chọn. Bỏ khỏi danh sách: `AsyncClient` mỗi lần gọi và `episodes.record` trên event loop (đo theo lý thuyết không gây chậm thật).
+  - ~~Dọn backend, mục 6–10 của audit~~ (Claude làm xong ở lần 31).
   - Viết README tiếng Anh.
 - **Người dùng tự làm:** thử mic và loa thật; nghe giọng theo cảm xúc; ẩn email trên hồ sơ GitHub; chuyển `CV_Projects_AIML.md` ra khỏi repo.
 - **Chưa kiểm chứng thật:** hẹn giờ tóm tắt buổi sau 30 phút im.
@@ -99,6 +99,15 @@ Nguồn: trang chủ và `/privacy` (bản sửa 2026-09-07). Họ không công 
 - Định tuyến nhiều nhà cung cấp cloud (trái local-first).
 
 ## Nhật ký phiên
+
+### 2026-11-21 (lần 31): sửa nốt mục 6–10 của audit
+- Nhánh `fix/audit-6-10`. Mục 11 (bỏ 2 việc không cần khỏi backlog) đã làm ở lần 30.
+  6. `app/util.py` (mới): `write_json()` thay 3 bản ghi JSON nguyên tử trong `memory.py`, `episodes.py`, `presence.py`.
+  7. `env_flag()` / `env_number()` thay 6 chỗ tự đọc biến môi trường (`memory`, `episodes`, `presence`, `voice_style`, `wake`). `env_number` giữ kiểu của giá trị mặc định (`EPISODE_GAP_MINUTES` và `VOICE_CUE_COOLDOWN_SECONDS` vẫn nhận số lẻ).
+  8. `/api/chat` ghi lượt của anh vào buổi trò chuyện **sau khi có trả lời** (trong `after_reply`). Trước đây "não" lỗi thì anh gửi lại và lượt đó bị ghi hai lần. Test mới, đỏ trước khi sửa. Hệ quả: lượt bị ngắt trước khi Mira viết xong chữ cũng không được ghi (giống trình duyệt, vốn cũng bỏ lượt đó).
+  9. `warm_llm_in_background` dùng `run_in_background`, bỏ tập task riêng; vẫn "đang nạp thì thôi".
+  10. `piper-tts` (GPL-3.0) chuyển sang `[project.optional-dependencies] piper`. Dùng Piper thì `uv sync --extra piper`; thiếu thư viện thì `/api/health` báo đúng lệnh (test mới). **Lưu ý:** lần `uv sync` tới sẽ gỡ piper khỏi `.venv` (máy này đang dùng VieNeu nên không ảnh hưởng).
+- Test 173 → 175 pass. Tổng `app/` gần như không đổi số dòng (+util.py, bớt lặp ở 6 file).
 
 ### 2026-11-21 (lần 30): audit toàn repo (ponytail) + sửa 5 lỗi đầu
 - Người dùng bật ponytail (thay đổi nhỏ nhất, trả lời gọn) cho dự án. Audit đọc kỹ `app/` và `web/`; chưa đọc kỹ `spikes/`, `.specify/`, `scripts/`, `wake.py`, `lipsync.js`. 11 phát hiện, sửa 1–5 trên nhánh `fix/audit-1-5` (tách từ `chore/agents-md-obsidian`).

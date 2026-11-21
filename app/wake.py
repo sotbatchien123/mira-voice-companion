@@ -7,9 +7,10 @@ STT hay nghe nhầm cái tên lạ "Mira" ("Vera ơi", "Misa ơi", "Này mới r
 
 from __future__ import annotations
 
-import os
 import re
 import unicodedata
+
+from .util import env_flag, env_number
 
 NAME = "Mira"
 
@@ -55,9 +56,4 @@ def detect_wake(text: str) -> tuple[bool, str]:
 
 def wake_settings() -> dict:
     """Cấu hình cho trình duyệt: có đòi tên khi rảnh tay không, và cửa sổ trò chuyện bao lâu."""
-    required = os.getenv("HANDSFREE_WAKE_WORD", "true").strip().lower() not in ("false", "0", "off", "no")
-    try:
-        window = max(0, int(os.getenv("WAKE_WINDOW_SECONDS", "60")))
-    except ValueError:
-        window = 60
-    return {"required": required, "window_seconds": window}
+    return {"required": env_flag("HANDSFREE_WAKE_WORD"), "window_seconds": env_number("WAKE_WINDOW_SECONDS", 60)}

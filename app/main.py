@@ -178,27 +178,6 @@ async def _warm_up(label: str, engine: SpeechEngine | SpeechRecognizer) -> None:
         log.warning("nạp %s lúc khởi động thất bại", label, exc_info=True)
 
 
-_llm_warming: set[asyncio.Task] = set()  # giữ tham chiếu để task nền không bị dọn giữa chừng
-
-
-def warm_llm_in_background(llm: ChatLLM) -> None:
-    """Nạp sẵn "não" ở nền (gọi lúc khởi động và mỗi lần mở trang); đang nạp thì không gọi thêm."""
-    if _llm_warming:
-        return
-
-    async def run() -> None:
-        started = time.perf_counter()
-        try:
-            await llm.warm_up()
-            log.info("nạp sẵn %s mất %.1fs", llm.model, time.perf_counter() - started)
-        except Exception:
-            log.warning("nạp sẵn %s thất bại", llm.model, exc_info=True)  # /api/health sẽ báo lỗi rõ cho người dùng
-
-    task = asyncio.create_task(run())
-    _llm_warming.add(task)
-    task.add_done_callback(_llm_warming.discard)
-
-
 _background: set[asyncio.Task] = set()
 
 
@@ -209,6 +188,26 @@ def run_in_background(coro: Awaitable) -> asyncio.Task:
     _background.add(task)
     task.add_done_callback(_background.discard)
     return task
+
+
+_llm_warming: asyncio.Task | None = None
+
+
+def warm_llm_in_background(llm: ChatLLM) -> None:
+    """Nạp sẵn "não" ở nền (gọi lúc khởi động và mỗi lần mở trang); đang nạp thì không gọi thêm."""
+    global _llm_warming
+    if _llm_warming is not None and not _llm_warming.done():
+        return
+
+    async def run() -> None:
+        started = time.perf_counter()
+        try:
+            await llm.warm_up()
+            log.info("nạp sẵn %s mất %.1fs", llm.model, time.perf_counter() - started)
+        except Exception:
+            log.warning("nạp sẵn %s thất bại", llm.model, exc_info=True)  # /api/health sẽ báo lỗi rõ cho người dùng
+
+    _llm_warming = run_in_background(run())
 
 
 @asynccontextmanager
@@ -544,11 +543,12 @@ async def chat(
         if episodes.due(now):
             # Buổi trước chưa được tóm tắt (server vừa khởi động lại): làm ở nền, lượt này vẫn còn lịch sử bên trình duyệt
             schedule_episode_close(episodes, llm, turn_log)
-        episodes.record("user", user_message, now)
     system = build_system(now, memory, episodes)
 
     async def after_reply(raw: str) -> None:
         if episodes:
+            # Ghi lượt của anh chỉ khi đã có trả lời: "não" lỗi thì anh gửi lại, đừng ghi hai lần
+            episodes.record("user", user_message, now)
             episodes.record("assistant", parse_complete(raw).text, datetime.now())
             episodes.close_later(llm, on_done=lambda r: turn_log.write({"kind": "episode", **r}))
         if memory:
