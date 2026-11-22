@@ -1,3 +1,5 @@
+English: [README.en.md](README.en.md)
+
 > **Quy định:** Đọc [GHI_NHO.md](GHI_NHO.md) trước khi làm việc với dự án, và cập nhật nó cuối mỗi phiên.
 
 # Mira – 3D Vietnamese Voice Companion
@@ -26,6 +28,9 @@ Cần [uv](https://docs.astral.sh/uv/) (quản lý Python 3.12 + thư viện cho
 5. Có model nhân vật: tạo bằng **VRoid Studio** → Export → VRM, rồi đặt vào `web/models/waifu.vrm`
    (hoặc kéo thả file `.vrm` vào trang web).
 6. `uv run uvicorn app.main:app --reload --port 8000` → mở http://localhost:8000
+
+Trên Windows: nhấp đúp `start.bat` (tự bật Ollama nếu cần, chạy server không `--reload` và mở trình duyệt khi sẵn sàng).
+Đóng cửa sổ đó là tắt Mira.
 
 Sửa `.env` xong thì phải **tắt và chạy lại server**: `--reload` chỉ theo dõi file `.py`.
 
@@ -87,11 +92,15 @@ Chi tiết: `specs/002-voice-tts/contracts/chat-sse.md`.
   - `CLAUDE_EFFORT`: `low` (mặc định), `medium`, `high`.
   - Server bật sẵn *server-side fallback*: nếu model chính từ chối một câu vì bộ lọc an toàn, API tự thử model dự phòng.
 - Giọng nói:
-  - `TTS_PROVIDER`: `vieneu` (mặc định), `piper` hoặc `none`.
+  - `TTS_PROVIDER`: `vieneu` (mặc định), `piper`, `voicevox` hoặc `none`.
   - `VIENEU_VOICE`: mặc định `Mỹ Duyên`; giọng nữ khác: Trúc Ly, Thục Đoan, Đoan Trang, Kim Thanh, Mai Anh…
   - `VIENEU_PRECISION`: `fp32` (mặc định) hoặc `int8` (trên máy này không nhanh hơn rõ).
   - `PIPER_VOICE`: đường dẫn file `.onnx`, mặc định `models/piper/vi_VN-vais1000-medium.onnx`.
   - `PIPER_LENGTH_SCALE`: `>1` đọc chậm hơn, `<1` nhanh hơn.
+  - Khi dùng `TTS_PROVIDER=voicevox` (giọng tiếng Nhật ずんだもん, chữ trên màn hình vẫn hoàn toàn tiếng Việt; cần mở sẵn VOICEVOX app hoặc `run.exe`, và giao diện hiện dòng ghi nguồn `VOICEVOX:ずんだもん` theo điều khoản giọng):
+    - `VOICEVOX_URL`: mặc định `http://127.0.0.1:50021`.
+    - `VOICEVOX_SPEAKER`: mặc định `3` (ずんだもん ノーマル).
+    - `VOICEVOX_EMOTION_STYLES`: mặc định `happy:1,angry:7,sad:76` (あまあま / ツンツン / なみだめ).
 
 - Nghe giọng nói:
   - `STT_PROVIDER`: `zipformer` (mặc định), `whisper` hoặc `none`.
@@ -154,6 +163,7 @@ Model và thư viện **không nằm trong repo**: được tải về máy lúc
 | [three.js](https://github.com/mrdoob/three.js) 0.187, [three-vrm](https://github.com/pixiv/three-vrm) 3.5.5 (vendor trong `web/vendor/`) | Hiển thị 3D, VRM | MIT |
 | [VieNeu-TTS](https://github.com/pnnbao97/VieNeu-TTS) v3 Turbo | Giọng nói (mặc định) | Apache-2.0 |
 | [piper-tts](https://github.com/OHF-voice/piper1-gpl) + giọng `vi_VN-vais1000-medium` | Giọng nói (dự phòng, chỉ cài khi chạy `uv sync --extra piper`) | GPL-3.0 (thư viện) / CC-BY-4.0 (giọng) |
+| VOICEVOX engine + giọng ずんだもん | Giọng nói tiếng Nhật (`TTS_PROVIDER=voicevox`; chạy riêng trên máy, không nằm trong repo) | [Điều khoản VOICEVOX](https://voicevox.hiroshiba.jp/term/) và [điều khoản giọng ずんだもん](https://zunko.jp/con_ongen_kiyaku.html) (bắt buộc ghi nguồn `"VOICEVOX:ずんだもん"`; cấm dùng cho chính trị/tôn giáo, trái thuần phong mỹ tục, nói dối/làm giả) |
 | [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) | Chạy Zipformer | Apache-2.0 |
 | [Zipformer-30M-RNNT-6000h](https://huggingface.co/hynt/Zipformer-30M-RNNT-6000h) | Nghe giọng nói (mặc định) | **CC-BY-NC-ND-4.0: chỉ dùng phi thương mại** |
 | [faster-whisper](https://github.com/SYSTRAN/faster-whisper) + Whisper `small`, Silero VAD | Nghe giọng nói (dự phòng), lọc im lặng | MIT |

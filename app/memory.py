@@ -252,7 +252,15 @@ def render_memory(facts: list[Fact], limit: int = MEMORY_PROMPT_CHARS, today: da
     return "\n".join(lines)
 
 
-def system_prompt(now: datetime, facts: list[Fact], episodes: str = "") -> str:
+JA_VOICE_PROMPT = """Giọng nói: chỉ phần trong thẻ <ja>…</ja> được đọc thành tiếng, chữ tiếng Việt chỉ hiện trên màn hình.
+- Câu nào không có <ja> theo sau thì em sẽ im lặng ở câu đó, nên sau TỪNG câu tiếng Việt (kể cả câu ngắn, câu hỏi) phải có ngay <ja> của chính câu đó.
+- Trả lời 1–3 câu ngắn. Hai câu rất ngắn liền nhau có thể chung một <ja> đặt sau câu thứ hai; câu cuối (thường là câu hỏi) cũng phải có <ja>.
+- Bản tiếng Nhật thật NGẮN, giọng nói chuyện thân mật, giữ đúng ý câu vừa viết; tên riêng, món ăn, địa danh Việt viết bằng katakana theo âm Việt, không đổi sang thứ khác.
+Ví dụ:
+[happy] Anh về rồi hả! <ja>おかえり！</ja> Hôm nay đi làm có mệt không? <ja>今日、疲れた？</ja> [relaxed] Tối nay ăn phở nha. <ja>今夜はフォーにしよう。</ja>"""
+
+
+def system_prompt(now: datetime, facts: list[Fact], episodes: str = "", speak_ja: bool = False) -> str:
     """episodes: các buổi trò chuyện trước đã tóm tắt (app.episodes.render_episodes), rỗng nếu chưa có."""
     parts = [SYSTEM_PROMPT, "", today_line(now)]
     memory = render_memory(facts, today=now)
@@ -262,6 +270,8 @@ def system_prompt(now: datetime, facts: list[Fact], episodes: str = "") -> str:
     if episodes:
         parts += ["", "Các lần trò chuyện gần đây (tóm tắt, mới nhất trước). Dùng để nối tiếp câu chuyện khi hợp lý; "
                       "không bịa thêm chi tiết:", episodes]
+    if speak_ja:
+        parts += ["", JA_VOICE_PROMPT]
     return "\n".join(parts)
 
 

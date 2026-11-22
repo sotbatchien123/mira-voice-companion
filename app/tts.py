@@ -6,17 +6,24 @@ stream() chạy đồng bộ (CPU) và trả từng mảnh PCM ngay khi tạo ra
 from __future__ import annotations
 
 import importlib.util
+import io
 import os
 import threading
+import wave
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Protocol
 
+import httpx
 import numpy as np
+
+from app.util import env_number
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_PIPER_VOICE = "models/piper/vi_VN-vais1000-medium.onnx"
 DEFAULT_VIENEU_VOICE = "Mỹ Duyên"
+DEFAULT_VOICEVOX_URL = "http://127.0.0.1:50021"
+DEFAULT_VOICEVOX_STYLES = "happy:1,angry:7,sad:76"
 
 
 class TTSError(Exception):
@@ -136,12 +143,75 @@ class VieNeuTTS:
                 yield float_to_pcm16(chunk)
 
 
+class VoicevoxTTS:
+    """VOICEVOX chạy riêng trên máy (HTTP), nói tiếng Nhật; mora của từng âm cho khớp miệng."""
+
+    name = "voicevox"
+    speech_language = "ja"
+    credit = "VOICEVOX:ずんだもん"
+    sample_rate = 24000
+    segment_pause_s = 0.0
+
+    def __init__(self, transport: httpx.BaseTransport | None = None) -> None:
+        self.url = os.getenv("VOICEVOX_URL", DEFAULT_VOICEVOX_URL).strip().rstrip("/")
+        self.speaker = int(env_number("VOICEVOX_SPEAKER", 3))
+        self.styles: dict[str, int] = {}
+        for item in os.getenv("VOICEVOX_EMOTION_STYLES", DEFAULT_VOICEVOX_STYLES).split(","):
+            emotion, _, speaker = item.partition(":")
+            if emotion.strip() and speaker.strip().isdigit():  # mục hỏng thì bỏ qua
+                self.styles[emotion.strip()] = int(speaker)
+        self._client = httpx.Client(base_url=self.url, transport=transport, timeout=httpx.Timeout(30.0, connect=3.0))
+        self.down = False  # lần gọi gần nhất không kết nối được: server cho lượt sau chỉ có chữ (app.main.can_speak)
+
+    def _down(self) -> str:
+        return f"Chưa kết nối được VOICEVOX ở {self.url}. Hãy mở VOICEVOX (app hoặc engine) rồi thử lại."
+
+    def check(self) -> str | None:
+        try:
+            self._client.get("/version", timeout=2.0).raise_for_status()
+        except httpx.HTTPError:
+            self.down = True
+            return self._down()
+        self.down = False
+        return None
+
+    def warm_up(self) -> None:
+        self.synthesize("こんにちは。")  # nạp model giọng trước lượt chat đầu; lỗi thì TTSError
+
+    def synthesize(self, text: str, emotion: str | None = None) -> tuple[bytes, str]:
+        speaker = self.styles.get(emotion or "", self.speaker)
+        try:
+            query = self._client.post("/audio_query", params={"text": text, "speaker": speaker})
+            query.raise_for_status()
+            data = query.json()
+            audio = self._client.post("/synthesis", params={"speaker": speaker}, json=data)
+            audio.raise_for_status()
+        except httpx.HTTPError as exc:
+            self.down = isinstance(exc, httpx.TransportError)
+            raise TTSError(self._down() if self.down else f"VOICEVOX báo lỗi: {exc}") from exc
+        self.down = False
+        with wave.open(io.BytesIO(audio.content), "rb") as wav:
+            pcm = wav.readframes(wav.getnframes())
+        vowels = ""
+        for phrase in data.get("accent_phrases", []):
+            for mora in phrase.get("moras", []):
+                vowels += {"N": "n", "cl": "-"}.get(mora["vowel"], mora["vowel"].lower())  # chữ hoa = nguyên âm vô thanh
+            if phrase.get("pause_mora"):
+                vowels += "-"
+        return pcm, vowels
+
+    def stream(self, text: str) -> Iterator[bytes]:
+        yield self.synthesize(text)[0]
+
+
 def make_tts() -> SpeechEngine | None:
     provider = os.getenv("TTS_PROVIDER", "vieneu").strip().lower()
     if provider == "vieneu":
         return VieNeuTTS()
     if provider == "piper":
         return PiperTTS()
+    if provider == "voicevox":
+        return VoicevoxTTS()
     if provider in ("none", "off", ""):
         return None
-    raise ValueError(f"TTS_PROVIDER không hợp lệ: {provider!r} (dùng 'vieneu', 'piper' hoặc 'none')")
+    raise ValueError(f"TTS_PROVIDER không hợp lệ: {provider!r} (dùng 'vieneu', 'piper', 'voicevox' hoặc 'none')")

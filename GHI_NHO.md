@@ -14,7 +14,7 @@
   - Frontend phát PCM theo mảnh. Miệng tự cân theo đỉnh âm lượng. Nút "Giọng: bật/tắt". Log `logs/turns.jsonl`.
   - Đo thật: audio đầu 0,53–0,61s, chữ đầu 0,13–0,15s, 0 lỗ hổng khi phát, VRAM không đổi.
   - Miệng nhép trên VRM thật đã kiểm chứng (T013). Người dùng chưa nghe bản chạy trong app.
-- `uv run pytest` hiện là **175/175 pass** (2026-11-21).
+- `uv run pytest` hiện là **208/208 pass** (2026-11-22, nhánh `feat/011-japanese-voice`).
 - **Nghe giọng nói (spec 003):** mặc định **Zipformer-30M** (sherpa-onnx, CPU, model đặt ngoài repo, trỏ bằng `ZIPFORMER_DIR`; máy dev dùng chung bản của VoiceDeck), có Silero VAD chặn im lặng; Whisper `small` làm dự phòng. Nút "Giữ để nói" (hoặc giữ Space khi ô nhập trống), "Rảnh tay" (VAD theo VoiceDeck), người dùng nói thì Mira im. Đo: FLEURS người thật WER 8,8% / 0,18s. **Chưa thử lại mic thật sau khi đổi.**
 - **Trí nhớ dài hạn (spec 004):** `app/memory.py`, `data/memory.json` (gitignored). Model chỉ đề xuất điều mới + loại; code tự thay theo loại (tên, tuổi, nghề, nơi ở, cách gọi) và ghi ngày nói. System prompt có ngày giờ + điều đã nhớ. Lịch sử cắt theo 5000 ký tự. Nút "Trí nhớ" xem/xóa. Kiểm chứng thật đạt hết (`scripts/verify_memory.py`).
 - **Mira chủ động (spec 006):** `app/presence.py`, `POST /api/proactive {kind: greet|checkin}` (204 nếu chưa đến lúc). Chào khi mở trang nếu vắng ≥ 30 phút; hỏi thăm 1 lần khi im ≥ 10 phút (trang hiện, không bận). Mốc thời gian trong trí nhớ được code đổi thành ngày + nhãn đã diễn ra/hôm nay/sắp tới.
@@ -42,15 +42,15 @@
 
 **Cập nhật 2026-11-21** (danh sách đang dùng; kế hoạch 13/11 bên dưới giữ làm lịch sử):
 
-- **Đang làm (Claude Code):** chuyển động đầu theo giọng nói (spec 010, chỉ sửa `web/`). Mới đọc xong `web/avatar.js`, chưa sửa. Hiện đã có: dáng đầu theo cảm xúc, nghiêng khi lắng nghe, gật 0,035 rad mỗi âm tiết.
+- ~~Chuyển động đầu theo giọng nói~~ (xong lần 33, spec 010). Bước tiếp theo hợp lý: chuyển động thân bằng VRMA, dùng gói CC0 Sachi (người dùng tự tải zip trên BOOTH, cần đăng nhập).
 - **Hợp giao cho Antigravity** (luật chung ở `AGENTS.md`; mỗi agent một nhánh, không sửa trùng file):
   - Quay GIF/video demo cho README.
-  - Tìm file chuyển động VRMA có license rõ ràng, chuẩn bị cho bước body animation.
+  - ~~Tìm file chuyển động VRMA có license rõ ràng~~ (xong lần 32, xem nhật ký).
   - ~~Dọn backend, mục 6–10 của audit~~ (Claude làm xong ở lần 31).
-  - Viết README tiếng Anh.
+  - ~~Viết README tiếng Anh~~ (xong lần 32: `README.en.md`).
 - **Người dùng tự làm:** thử mic và loa thật; nghe giọng theo cảm xúc; ẩn email trên hồ sơ GitHub; chuyển `CV_Projects_AIML.md` ra khỏi repo.
 - **Chưa kiểm chứng thật:** hẹn giờ tóm tắt buổi sau 30 phút im.
-- **Để sau:** body animation (VRMA); `start.bat` + tự chạy + Tailscale; giọng riêng (spec 004 cũ); nhiều người dùng; graphify.
+- **Để sau:** body animation (VRMA); tự chạy khi bật máy + Tailscale (`start.bat` đã có, lần 33); giọng riêng (spec 004 cũ); nhiều người dùng; graphify.
 
 Kế hoạch đề xuất sau rà soát 2026-11-13 (chờ người dùng chốt):
 
@@ -99,6 +99,78 @@ Nguồn: trang chủ và `/privacy` (bản sửa 2026-09-07). Họ không công 
 - Định tuyến nhiều nhà cung cấp cloud (trái local-first).
 
 ## Nhật ký phiên
+
+### 2026-11-22 (lần 35): review toàn nhánh spec 011 + rà soát cả project, sửa lỗi
+- Review toàn nhánh do Antigravity (Claude Opus Medium) làm. Headless `agy` chặn mọi lệnh shell kể cả khi có
+  `--settings` cho phép lệnh đọc; cách chạy được: gom prompt + spec + diff vào một file rồi đưa qua stdin, dặn không
+  gọi công cụ nào. PowerShell 5.1 cắt chuỗi prompt có ngoặc kép, nên gọi `agy` từ Bash.
+- Đã sửa (`app/ja_tags.py`, `app/main.py`, `app/tts.py`, `app/llm.py`, `web/main.js`):
+  - Model quên `</ja>`: thẻ `<ja>` mới đóng thẻ cũ; chữ Việt sót sau dấu hết câu Nhật trả về màn hình (chỉ khi phần đó
+    không còn kana/kanji, để "はい。OKです" vẫn đọc trọn).
+  - Câu trong `<ja>` bỏ tag cảm xúc; không có kana/kanji (model quên dịch) thì không đọc.
+  - `trim_history`: bỏ `<ja>` trước khi đo ngân sách; lượt toàn tiếng Nhật gửi `"…"`.
+  - VOICEVOX tắt (`VoicevoxTTS.down`): lượt đó chỉ có chữ, không bắt model viết tiếng Nhật, kiểm lại ở nền.
+  - Nhỏ: Claude không bị hạ `max_tokens` xuống 1024; `tts.check()` chạy trong thread; lịch sử giữ xuống dòng;
+    nguyên âm vô thanh viết hoa của VOICEVOX vẫn mấp máy miệng; regex bỏ ký tự ẩn U+3040.
+- Prompt tiếng Nhật thêm "trả lời 1–3 câu, câu cuối cũng phải có `<ja>`". `scripts/verify_ja_voice.py` giờ đếm câu
+  Việt không có `<ja>` theo sau. Đo 20 câu: câu bị im 16/55 (29%) -> 12/51 (24%), trả lời không im câu nào 8/20 ->
+  10/20 (n nhỏ, có thể là nhiễu). Giọng đầu lần đo sau chậm (4,1s) do máy bận chạy việc khác giữa chừng, cần đo lại.
+- Còn lại: đo lại độ trễ khi máy rảnh; `logs/turns.jsonl` không giới hạn dung lượng; episodes giữ lượt mãi nếu tóm
+  tắt hỏng liên tục; khi VOICEVOX tắt miệng Mira đứng yên (trình duyệt vẫn chờ giọng). Chưa squash-merge vào main.
+
+### 2026-11-21 (lần 34): spec 011 chat tiếng Việt, giọng tiếng Nhật (VOICEVOX ずんだもん)
+- Người dùng chọn: chữ tiếng Việt, giọng tiếng Nhật; engine VOICEVOX (đã nghe 10 giọng, chọn ずんだもん); model tự viết kèm
+  `<ja>…</ja>` (không gọi dịch riêng); nếu chậm thì rút gọn rồi báo. Thiết kế + kế hoạch: `specs/011-japanese-voice/`.
+- Nhánh `feat/011-japanese-voice`:
+  - Bước 1–3 do subagent làm + review từng bước (`app/ja_tags.py`, `VoicevoxTTS` trong `app/tts.py`, ghép vào
+    `app/main.py`/`memory.py`/`llm.py`). Review bắt 4 lỗi thật: ngoặc trống sót khi chữ bị cắt, thẻ lạc lọt màn hình,
+    warm_up chưa tổng hợp thử, câu Nhật nhận sai cảm xúc khi tag cảm xúc nằm cùng mảnh. Subagent tốn ~910k token →
+    người dùng thấy đắt; việc cỡ này lần sau Claude tự làm, review một lần cuối.
+  - Bước 4 (giao diện): giao Antigravity (Claude Opus Medium) 2 lần đều dừng giữa chừng, không sửa file nào (log:
+    "You are not logged into Antigravity" khi chạy 2 `agy` cùng lúc) → Claude tự làm: `moraVisemes`, lịch sử bỏ `<ja>`,
+    dòng `VOICEVOX:ずんだもん` cạnh nút Giọng. Kiểm trong trình duyệt với model + VOICEVOX thật.
+  - Tài liệu (README, README.en, `.env.example`): Antigravity (Gemini 4 Argon Medium) viết, Claude soát.
+  - Đo 20 câu thật (`scripts/verify_ja_voice.py`, server thử cổng 8002 tắt trí nhớ): lần 1 giọng đầu trung vị 2,9s (vượt
+    mốc 2,5s); rút gọn prompt (`JA_VOICE_PROMPT`: câu nào cũng phải có `<ja>`, tiếng Nhật thật ngắn, tên riêng/món ăn viết
+    katakana theo âm Việt) → **giọng đầu 1,6s**, chữ đầu 145ms, 0 lần lọt chữ Nhật. Nhưng **chỉ 8/20 câu trả lời có `<ja>`
+    cho mọi câu** (câu thiếu thì im), bản dịch của qwen3:8b đôi khi sai nghĩa/cứng (đã báo người dùng).
+- Cách bật trên máy này: chạy `run.exe` trong thư mục `tools/voicevox/engine` ở thư mục người dùng (ngoài repo) (VOICEVOX 0.26.2, CPU), rồi
+  `TTS_PROVIDER=voicevox`. `.claude/launch.json` có cấu hình `voicevox` (đường dẫn riêng, **không commit**) và `waifu-ja`.
+- Lúc thử, server cổng 8002 vẫn ghi `data/presence.json` (giờ nói lần cuối) dù tắt trí nhớ.
+- Còn lại: người dùng nghe thử và quyết có chấp nhận tỉ lệ câu im không; review toàn nhánh; gộp/push khi người dùng đồng ý.
+
+### 2026-11-21 (lần 33): chuyển động đầu (spec 010) + `start.bat` do Antigravity viết
+- **Spec 010** (`specs/010-head-motion/spec.md`, chỉ một file vì việc nhỏ). `web/avatar.js`:
+  - Đang nói: cứ 0,8–2 giây đổi hướng đầu mới nhỏ (quay ≤ 0,08 rad, ngẩng/cúi ≤ 0,03 rad, chia cổ 40% / đầu 60%), im thì về giữa.
+  - Gật theo độ nhấn: `0,015 + 0,035 × (âm lượng / đỉnh gần đây)` thay cho 0,035 cố định.
+  - Mắt: `lookAt.target` là một điểm `gaze` bám camera; cứ 3–7 giây liếc sang ngang/xuống 0,4–1,2 giây. Đang lắng nghe thì không liếc.
+  - Đo trong trình duyệt (server thử `waifu-test` ở cổng 8001, tắt lời chào và trí nhớ nên không đụng `data/` hay lịch sử ở cổng 8000; giọng giả 220Hz to nhỏ theo nhịp): đầu quay −0,033…0,041 rad khi nói, về 0 khi im; 16 âm tiết trong 4s, gật tối đa 0,034; lắng nghe 0 khung liếc, lúc rảnh có liếc; console không lỗi. **Người dùng chưa xem bằng mắt.**
+- `.claude/launch.json` thêm cấu hình `waifu-test` (cổng 8001, `PROACTIVE_GREETING=false`, `MEMORY_ENABLED=false`) để thử giao diện mà không đụng dữ liệu thật.
+- **`start.bat`** (Antigravity, Claude Opus 5.5 Medium, `accept-edits`): kiểm tra uv, bật `ollama serve` nếu chưa chạy (bỏ qua khi `LLM_PROVIDER=claude`), chạy server không `--reload`, mở trình duyệt khi `/api/health` trả lời; Mira chạy sẵn thì chỉ mở trình duyệt. README/README.en thêm một dòng.
+  - Lần giao đầu thất bại: `agy -p` không hỏi được quyền chạy lệnh nên tự từ chối và dừng. Giao lại kèm câu "không được chạy lệnh shell, chỉ đọc/ghi file" thì xong.
+  - Claude kiểm: file UTF-8 không BOM, đổi LF → CRLF; chạy nhánh "không có uv" in đúng tiếng Việt và dừng. **Chưa chạy trọn** (sẽ bật server và mở trình duyệt của người dùng).
+
+### 2026-11-21 (lần 32): giao việc cho Antigravity qua CLI `agy`
+- Máy có CLI `agy` (Antigravity, tài khoản Google của người dùng). Chạy không tương tác:
+  `agy -p "<việc>" --model <model> --mode plan|accept-edits --print-timeout 20m`. `agy models` liệt kê model:
+  Gemini 4 Neon/Argon/Hydrogen, Gemini 3.8 Flash, Claude Opus/Sonnet 5.5, GPT-OSS 120B. Hạn mức tính riêng ở
+  Antigravity (Gemini một nhóm, Claude + GPT một nhóm), không trừ vào gói Claude Code. Đã thử: Claude Sonnet 5.5 và
+  Gemini 3.8 Flash đều trả lời được. Antigravity tự đọc `AGENTS.md`.
+- **README tiếng Anh:** Gemini 4 Neon (`accept-edits`, nhánh `agy/readme-en`) viết `README.en.md`, chỉ tạo đúng file đó.
+  Claude soát: đủ mục, có cả `--extra piper`, `ALLOWED_HOSTS`, bảng license. README.md thêm dòng trỏ sang bản tiếng Anh.
+- **Nguồn chuyển động VRMA** (Gemini 3.8 Flash, `plan`, chỉ đọc). Claude kiểm lại trang gốc:
+  - **[CC0]Sachi VRMA 1** (booth.pm/en/items/6412084): trang gốc ghi CC0 (**đã kiểm**). Zip 56MB, 2 thư mục
+    `handmade_vrma` và `capture_vrma`. Tên từng file (Gemini kể `idle_pose`, `greet_sachi`…) **chưa kiểm**, phải tải zip mới biết.
+    → Ứng viên số 1 để đưa thẳng vào repo.
+  - three-vrm examples: chỉ có `test.vrma` kỹ thuật (MIT), không dùng được cho hội thoại.
+  - VRoid Project VRMA set (booth.pm/en/items/5512385): theo Gemini cấm phân phối lại dạng trích xuất được → không đưa vào repo (**chưa kiểm**).
+  - Mixamo: theo Gemini cấm phân phối file thô → chỉ cho người dùng tự tải (**chưa kiểm**). Chuyển FBX → VRMA: `fbx2vrma-converter` hoặc Blender + VRM Add-on.
+  - CMU Mocap (BVH, chuyển bằng `vrm-c/bvh2vrma`): Gemini nói dùng được kèm credit; trang FAQ CMU lỗi chứng chỉ, **chưa kiểm**.
+  - Quaternius: trang Gemini trích dẫn trả 404 → **không tin được** trích dẫn đó.
+  - Bandai Namco Motiondataset: NC → không dùng.
+  - Đề xuất: ship vài file CC0 của Sachi trong `web/animations/`; nguồn khác thì người dùng tự tải vào thư mục gitignored.
+- Bài học: báo cáo license của model khác phải kiểm lại trang gốc (1 trích dẫn trỏ tới trang 404).
+- **Từ nay giao việc cho Antigravity chỉ dùng 2 model** (người dùng chốt): `claude-opus-5-5-medium` (việc code, suy luận) và `gemini-4-argon-medium` (tìm hiểu, viết tài liệu).
 
 ### 2026-11-21 (lần 31): sửa nốt mục 6–10 của audit
 - Nhánh `fix/audit-6-10`. Mục 11 (bỏ 2 việc không cần khỏi backlog) đã làm ở lần 30.

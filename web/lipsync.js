@@ -42,6 +42,13 @@ export function syllableVisemes(text) {
   });
 }
 
+const MORA_VISEME = { a: "aa", i: "ih", u: "ou", e: "ee", o: "oh" };
+
+/** Khẩu hình từ nguyên âm từng mora do VOICEVOX trả ("oaen-"): ん và っ/nghỉ là "-" (không có trong VISEMES = ngậm miệng). */
+export function moraVisemes(vowels) {
+  return [...vowels].map((v) => MORA_VISEME[v] ?? "-");
+}
+
 /**
  * Bắt nhịp âm tiết từ âm lượng: mỗi lần âm lượng (so với đỉnh gần đây) tụt xuống rồi vọt lên lại là một âm tiết mới.
  * Ngưỡng chỉnh theo giọng VieNeu thật (xem specs/005-lively-avatar/tasks.md).

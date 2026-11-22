@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
-import { SyllableTracker, VISEMES, syllableVisemes } from "./lipsync.js";
+import { SyllableTracker, VISEMES, moraVisemes, syllableVisemes } from "./lipsync.js";
 
 /** Tên expression chuẩn VRM 1.0, khớp với app/emotion_tags.py */
 export const EMOTIONS = ["neutral", "happy", "angry", "sad", "relaxed", "surprised"];
@@ -59,6 +59,14 @@ export class Avatar {
     this.nod = 0;
     this.listening = false;
     this.pose = { x: 0, z: 0 };
+    // Đang nói thì đầu đổi hướng nhẹ theo thời gian, mắt thỉnh thoảng liếc đi (spec 010)
+    this.talkHead = { yaw: 0, pitch: 0 };
+    this.talkTarget = { yaw: 0, pitch: 0 };
+    this.nextTalkMove = 0;
+    this.gaze = new THREE.Object3D(); // điểm mắt nhìn: thường trùng camera
+    this.glanceOffset = new THREE.Vector3();
+    this.glanceUntil = 0;
+    this.nextGlance = 3;
 
     // ?debug=1: lộ avatar ra window để đo trong lúc kiểm chứng (không bật thì không có gì)
     if (new URLSearchParams(location.search).has("debug")) window.__mira = { avatar: this };
@@ -103,7 +111,7 @@ export class Avatar {
       }
       this.vrm = vrm;
       this.scene.add(vrm.scene);
-      if (vrm.lookAt) vrm.lookAt.target = this.camera; // mắt nhìn theo camera
+      if (vrm.lookAt) vrm.lookAt.target = this.gaze; // mắt nhìn theo camera, thỉnh thoảng liếc đi
       this.relaxArms();
       this.frameFace();
     } finally {
@@ -128,8 +136,9 @@ export class Avatar {
   }
 
   /** Chữ của đoạn vừa bắt đầu đọc: tách thành khẩu hình từng âm tiết. */
-  setSpeechText(text) {
-    this.visemes = syllableVisemes(text ?? "");
+  setSpeechText(text, vowels) {
+    // Giọng tiếng Nhật: VOICEVOX đã cho sẵn nguyên âm từng mora, khỏi đoán từ chữ
+    this.visemes = vowels ? moraVisemes(vowels) : syllableVisemes(text ?? "");
     this.syllable = -1;
   }
 
@@ -175,6 +184,7 @@ export class Avatar {
     if (this.vrm) {
       this.animateIdle(dt);
       this.animateFace(dt);
+      this.animateGaze();
       this.vrm.update(dt); // cập nhật expression, lookAt, vật lý tóc/váy (spring bone)
     }
     this.renderer.render(this.scene, this.camera);
@@ -195,16 +205,43 @@ export class Avatar {
     this.pose.z = THREE.MathUtils.damp(this.pose.z, target.z, 3, dt);
     this.nod = THREE.MathUtils.damp(this.nod, 0, 10, dt);
 
+    // Đang nói: cứ 0,8–2 giây đổi sang một hướng đầu mới nhỏ, như người vừa nói vừa cử động; im thì về giữa
+    if (this.audioLevel === null) {
+      this.talkTarget = { yaw: 0, pitch: 0 };
+    } else if (this.elapsed > this.nextTalkMove) {
+      this.talkTarget = { yaw: (Math.random() * 2 - 1) * 0.08, pitch: (Math.random() * 2 - 1) * 0.03 };
+      this.nextTalkMove = this.elapsed + 0.8 + Math.random() * 1.2;
+    }
+    this.talkHead.yaw = THREE.MathUtils.damp(this.talkHead.yaw, this.talkTarget.yaw, 2.5, dt);
+    this.talkHead.pitch = THREE.MathUtils.damp(this.talkHead.pitch, this.talkTarget.pitch, 2.5, dt);
+
     // Chia cho cổ và đầu để cử động trông liền mạch
     if (neck) {
       neck.rotation.x = this.pose.x * 0.4;
-      neck.rotation.y = Math.sin(t * 0.5) * 0.06;
+      neck.rotation.y = Math.sin(t * 0.5) * 0.06 + this.talkHead.yaw * 0.4;
       neck.rotation.z = Math.sin(t * 0.37) * 0.03 + this.pose.z * 0.4;
     }
     if (head) {
-      head.rotation.x = this.pose.x * 0.6 + this.nod;
+      head.rotation.x = this.pose.x * 0.6 + this.nod + this.talkHead.pitch;
+      head.rotation.y = this.talkHead.yaw * 0.6;
       head.rotation.z = this.pose.z * 0.6;
     }
+  }
+
+  /** Mắt nhìn camera; cứ 3–7 giây liếc đi 0,4–1,2 giây rồi nhìn lại. Đang lắng nghe anh thì luôn nhìn anh. */
+  animateGaze() {
+    const t = this.elapsed;
+    if (this.listening) {
+      this.glanceUntil = 0;
+    } else if (t > this.nextGlance) {
+      this.glanceUntil = t + 0.4 + Math.random() * 0.8;
+      this.nextGlance = this.glanceUntil + 3 + Math.random() * 4;
+      const side = Math.random() < 0.5 ? -1 : 1;
+      this.glanceOffset.set(side * (0.25 + Math.random() * 0.2), -0.05 - Math.random() * 0.15, 0); // ~10–18° sang ngang
+    }
+    this.gaze.position.copy(this.camera.position);
+    if (t < this.glanceUntil) this.gaze.position.add(this.glanceOffset);
+    this.gaze.updateMatrixWorld();
   }
 
   animateFace(dt) {
@@ -255,7 +292,7 @@ export class Avatar {
         this.syllable = Math.min(this.syllable + 1, Math.max(this.visemes.length - 1, 0));
         this.viseme = this.visemes[this.syllable] ?? "aa";
         this.syllableCount += 1;
-        this.nod = 0.035; // gật nhẹ đầu mỗi âm tiết
+        this.nod = 0.015 + 0.035 * Math.min(1, this.audioLevel / this.levelPeak); // âm tiết nhấn mạnh gật sâu hơn
       }
     } else {
       this.viseme = "aa";

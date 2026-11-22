@@ -28,7 +28,8 @@ class ChatLLM(Protocol):
     provider: str
     model: str
 
-    def stream(self, history: list[dict[str, str]], system: str | None = None) -> AsyncIterator[Event]:
+    def stream(self, history: list[dict[str, str]], system: str | None = None,
+               max_tokens: int | None = None) -> AsyncIterator[Event]:
         """Phát ("text", delta) cho từng mảnh text, cuối cùng ("stop", stop_reason).
 
         `system`: system prompt do server dựng (persona + ngày giờ + trí nhớ); None thì dùng persona gốc."""
@@ -71,11 +72,12 @@ class ClaudeLLM:
             return "Chưa có ANTHROPIC_API_KEY. Điền key vào file .env rồi khởi động lại server."
         return None
 
-    async def stream(self, history: list[dict[str, str]], system: str | None = None) -> AsyncIterator[Event]:
+    async def stream(self, history: list[dict[str, str]], system: str | None = None,
+                     max_tokens: int | None = None) -> AsyncIterator[Event]:
         try:
             async with self.client.beta.messages.stream(
                 model=self.model,
-                max_tokens=2048,  # câu trả lời chat ngắn; tránh nhân vật nói quá dài
+                max_tokens=max(max_tokens or 0, 2048),  # câu trả lời chat ngắn; tránh nhân vật nói quá dài
                 system=system or SYSTEM_PROMPT,
                 output_config={"effort": self.effort},
                 # Model chính từ chối vì bộ lọc an toàn -> API tự chuyển sang model dự phòng phù hợp
@@ -131,24 +133,26 @@ class OllamaLLM:
         self.temperature = float(os.getenv("OLLAMA_TEMPERATURE", "0.8"))
         self._transport = transport  # test truyền transport giả vào đây
 
-    def _payload(self, history: list[dict[str, str]], system: str | None = None) -> dict:
+    def _payload(self, history: list[dict[str, str]], system: str | None = None,
+                 max_tokens: int | None = None) -> dict:
         payload: dict = {
             "model": self.model,
             "messages": [{"role": "system", "content": system or SYSTEM_PROMPT}, *history],
             "stream": True,
             "keep_alive": self.keep_alive,
-            "options": {"temperature": self.temperature, "num_predict": 512},
+            "options": {"temperature": self.temperature, "num_predict": max_tokens or 512},
         }
         if self.think in ("true", "false"):
             payload["think"] = self.think == "true"
         return payload
 
-    async def stream(self, history: list[dict[str, str]], system: str | None = None) -> AsyncIterator[Event]:
+    async def stream(self, history: list[dict[str, str]], system: str | None = None,
+                     max_tokens: int | None = None) -> AsyncIterator[Event]:
         # connect ngắn để báo nhanh khi Ollama chưa bật; read dài vì lần đầu nạp model vào GPU khá lâu
         timeout = httpx.Timeout(120.0, connect=3.0)
         try:
             async with httpx.AsyncClient(base_url=self.base_url, timeout=timeout, transport=self._transport) as client:
-                async with client.stream("POST", "/api/chat", json=self._payload(history, system)) as res:
+                async with client.stream("POST", "/api/chat", json=self._payload(history, system, max_tokens)) as res:
                     if res.status_code != 200:
                         await res.aread()
                         raise LLMError(self._http_error(res))

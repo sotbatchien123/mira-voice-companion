@@ -29,6 +29,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from pydantic import BaseModel, Field, field_validator
 
 from .emotion_tags import EmotionTagParser, ParsedChunk, parse_complete
+from .ja_tags import JaTagParser, strip_ja
 from .episodes import EpisodeStore, make_episodes, render_episodes
 from .llm import ChatLLM, LLMError, make_llm
 from .memory import MemoryStore, make_memory, remember, system_prompt
@@ -90,7 +91,11 @@ def trim_history(turns: list[ChatTurn], char_budget: int = HISTORY_CHAR_BUDGET) 
     """Giữ các lượt gần nhất trong giới hạn MAX_HISTORY và ngân sách ký tự; luôn bắt đầu bằng lượt user."""
     recent: list[ChatTurn] = []
     used = 0
-    for turn in reversed(turns[-MAX_HISTORY:]):
+    # Bỏ <ja> trước khi đo: phần tiếng Nhật không gửi cho model, đừng để nó chiếm ngân sách; lượt toàn tiếng Nhật
+    # thành "…" vì Claude không nhận content rỗng
+    spoken = [ChatTurn(role="assistant", content=strip_ja(t.content).strip() or "…") if t.role == "assistant" else t
+              for t in turns[-MAX_HISTORY:]]
+    for turn in reversed(spoken):
         if recent and used + len(turn.content) > char_budget:
             break  # lượt cuối (tin vừa gửi) luôn được giữ
         recent.insert(0, turn)
@@ -242,8 +247,10 @@ async def health(
     if tts is None:
         voice = {"engine": None, "ok": False, "problem": "Giọng nói đang tắt (TTS_PROVIDER=none trong .env)."}
     else:
-        voice_problem = tts.check()
+        voice_problem = await asyncio.to_thread(tts.check)  # check là HTTP đồng bộ, không chặn event loop
         voice = {"engine": tts.name, "ok": voice_problem is None, "problem": voice_problem}
+        if credit := getattr(tts, "credit", None):
+            voice["credit"] = credit  # chỉ engine có yêu cầu ghi công (VOICEVOX) mới thêm khóa này
     if stt is None:
         ears = {"engine": None, "ok": False, "problem": "Nghe giọng nói đang tắt (STT_PROVIDER=none trong .env)."}
     else:
@@ -344,8 +351,10 @@ class Speaker:
     Chạy song song nên chữ không phải chờ giọng (VieNeu mất ~0,45 giây cho mỗi giây audio).
     """
 
-    def __init__(self, tts: SpeechEngine, out: asyncio.Queue, style: VoiceStyle | None = None) -> None:
+    def __init__(self, tts: SpeechEngine, out: asyncio.Queue, style: VoiceStyle | None = None,
+                 ja: bool = False) -> None:
         self.tts = tts
+        self.ja = ja  # engine tiếng Nhật: nhận sẵn từng câu <ja>, gọi synthesize thay vì stream
         self.out = out
         self.style = style
         self.segmenter = SpeechSegmenter()
@@ -367,6 +376,10 @@ class Speaker:
             self._pending.append(emotion)
             pos = at
         self._enqueue(self.segmenter.push(chunk.text[pos:]))
+
+    def feed_ja(self, segments: list[str], emotion: str | None) -> None:
+        for seg in segments:
+            self._segments.put_nowait((seg, emotion))
 
     async def finish(self) -> None:
         """Đọc nốt phần còn lại và chờ tạo xong hết giọng."""
@@ -394,6 +407,9 @@ class Speaker:
                 continue
             text, emotion = item
             part = 0
+            if self.ja:
+                await self._run_ja(text, emotion)
+                continue
             spoken = text
             # Chỉ engine hiểu tín hiệu mới nhận "[cười]"; Piper sẽ đọc to nguyên chữ
             if self.style and getattr(self.tts, "supports_cues", False) and (cue := self.style.cue(emotion)):
@@ -413,13 +429,29 @@ class Speaker:
             if part:
                 self.seq += 1
 
-    def _emit(self, text: str, emotion: str | None, part: int, pcm: bytes) -> None:
+    async def _run_ja(self, text: str, emotion: str | None) -> None:
+        try:
+            pcm, vowels = await asyncio.to_thread(self.tts.synthesize, text, emotion)
+            self._emit(text, emotion, 0, fade_in(pcm, self.tts.sample_rate), vowels)
+            pause = int(self.tts.sample_rate * getattr(self.tts, "segment_pause_s", 0.0))
+            if pause:
+                self._emit(text, emotion, 1, bytes(2 * pause))
+            self.seq += 1
+        except Exception as err:
+            log.exception("tts failed")
+            self.failed = True
+            msg = str(err) if isinstance(err, TTSError) else f"Không tạo được giọng nói: {err}"
+            self.out.put_nowait(sse({"type": "tts_error", "message": msg}))
+
+    def _emit(self, text: str, emotion: str | None, part: int, pcm: bytes, vowels: str | None = None) -> None:
         if self.first_audio_at is None:
             self.first_audio_at = time.perf_counter()
         event = {"type": "audio", "seq": self.seq, "part": part, "rate": self.tts.sample_rate,
                  "pcm": base64.b64encode(pcm).decode("ascii")}
         if part == 0:
             event |= {"text": text, "emotion": emotion}
+            if vowels is not None:
+                event["vowels"] = vowels
             speed = self.style.speed_for(emotion) if self.style else 1.0
             if speed != 1.0:
                 event["speed"] = speed  # trình duyệt phát nhanh/chậm hơn cả đoạn (kèm cao độ)
@@ -437,6 +469,7 @@ def reply_stream(
     kind: str,
     after_text: Callable[[str], Awaitable[None]] | None = None,
     style: VoiceStyle | None = None,
+    ja: bool = False,
 ) -> StreamingResponse:
     """SSE cho một lượt Mira nói: emotion/text/audio ... text_done ... rồi {type:"done", raw} hoặc {type:"error"}.
 
@@ -447,26 +480,51 @@ def reply_stream(
 
     async def events() -> AsyncIterator[str]:
         out: asyncio.Queue[str | None] = asyncio.Queue()
-        speaker = Speaker(tts, out, style) if speak else None
+        speaker = Speaker(tts, out, style, ja=ja) if speak else None
         st = {"raw": [], "stop": "", "error": None, "first_text_at": None}
         start = time.perf_counter()
 
         async def produce() -> None:
             parser = EmotionTagParser()
+            ja_parser = JaTagParser() if ja else None
+            latest = {"emotion": None}  # cảm xúc mới nhất của luồng, gắn cho câu tiếng Nhật kế tiếp
+
+            def split(jc) -> ParsedChunk:
+                # Mỗi câu ja lấy cảm xúc đang có tại vị trí của nó, không phải cảm xúc cuối chunk
+                chunk = ParsedChunk()
+                pos = 0
+                for seg, at in [*zip(jc.ja, jc.ja_at), (None, len(jc.display))]:
+                    part = parser.push(jc.display[pos:at])
+                    pos = at
+                    chunk.text += part.text
+                    chunk.emotions += part.emotions
+                    if part.emotions:
+                        latest["emotion"] = part.emotions[-1]
+                    if speaker and seg:
+                        speaker.feed_ja([seg], latest["emotion"])
+                return chunk
+
             try:
-                async for kind_, value in llm.stream(history, system=system):
+                stream_kwargs = {"max_tokens": 1024} if ja else {}
+                async for kind_, value in llm.stream(history, system=system, **stream_kwargs):
                     if kind_ != "text":
                         st["stop"] = value
                         continue
                     st["raw"].append(value)
-                    chunk = parser.push(value)
+                    chunk = split(ja_parser.push(value)) if ja else parser.push(value)
                     if chunk.text.strip() and st["first_text_at"] is None:
                         st["first_text_at"] = time.perf_counter()
                     for ev in chunk_events(chunk):
                         out.put_nowait(ev)
-                    if speaker:
+                    if speaker and not ja:
                         speaker.feed(chunk)
-                last = parser.flush()
+                if ja:
+                    tail = split(ja_parser.flush())
+                    last = parser.flush()
+                    last.text = tail.text + last.text
+                    last.emotions = tail.emotions + last.emotions
+                else:
+                    last = parser.flush()
                 for ev in chunk_events(last):
                     out.put_nowait(ev)
                 if st["stop"] == "refusal":
@@ -482,7 +540,8 @@ def reply_stream(
                 # Chạy nền: anh ngắt lời (đóng kết nối) thì produce bị hủy, nhưng việc ghi nhớ vẫn phải chạy xong
                 extra = run_in_background(after_text(final["raw"])) if after_text else None
                 if speaker:
-                    speaker.feed(last)
+                    if not ja:
+                        speaker.feed(last)
                     await speaker.finish()
                 if extra:
                     await asyncio.shield(extra)  # hủy produce không được hủy lây sang việc ghi nhớ
@@ -543,13 +602,15 @@ async def chat(
         if episodes.due(now):
             # Buổi trước chưa được tóm tắt (server vừa khởi động lại): làm ở nền, lượt này vẫn còn lịch sử bên trình duyệt
             schedule_episode_close(episodes, llm, turn_log)
-    system = build_system(now, memory, episodes)
+    speak = can_speak(req.voice, tts)
+    ja = speaks_ja(speak, tts)
+    system = build_system(now, memory, episodes, speak_ja=ja)
 
     async def after_reply(raw: str) -> None:
         if episodes:
             # Ghi lượt của anh chỉ khi đã có trả lời: "não" lỗi thì anh gửi lại, đừng ghi hai lần
             episodes.record("user", user_message, now)
-            episodes.record("assistant", parse_complete(raw).text, datetime.now())
+            episodes.record("assistant", parse_complete(strip_ja(raw)).text, datetime.now())
             episodes.close_later(llm, on_done=lambda r: turn_log.write({"kind": "episode", **r}))
         if memory:
             await update_memory()
@@ -568,16 +629,32 @@ async def chat(
 
     return reply_stream(
         history=trim_history(req.messages), system=system,
-        llm=llm, tts=tts, speak=req.voice and tts is not None, turn_log=turn_log, kind="chat",
-        after_text=after_reply, style=style,
+        llm=llm, tts=tts, speak=speak, turn_log=turn_log, kind="chat",
+        after_text=after_reply, style=style, ja=ja,
     )
 
 
-def build_system(now: datetime, memory: MemoryStore | None, episodes: EpisodeStore | None) -> str:
+def can_speak(voice: bool, tts: SpeechEngine | None) -> bool:
+    """Engine chạy riêng (VOICEVOX) đang tắt thì lượt này chỉ có chữ, khỏi báo lỗi giọng mỗi lượt; kiểm lại ở nền để
+    bật lại engine là lượt sau có giọng ngay."""
+    if not voice or tts is None:
+        return False
+    if getattr(tts, "down", False):
+        run_in_background(asyncio.to_thread(tts.check))
+        return False
+    return True
+
+
+def speaks_ja(speak: bool, tts: SpeechEngine | None) -> bool:
+    return speak and getattr(tts, "speech_language", "vi") == "ja"
+
+
+def build_system(now: datetime, memory: MemoryStore | None, episodes: EpisodeStore | None,
+                 speak_ja: bool = False) -> str:
     if memory:
         memory.expire_events(now)  # bỏ sự kiện đã qua lâu trước khi đưa vào prompt
     return system_prompt(now, memory.facts() if memory else [],
-                         render_episodes(episodes.list(), now) if episodes else "")
+                         render_episodes(episodes.list(), now) if episodes else "", speak_ja)
 
 
 def schedule_episode_close(episodes: EpisodeStore, llm: ChatLLM, turn_log: TurnLog) -> asyncio.Task:
@@ -628,12 +705,14 @@ async def proactive(
 
     async def after_reply(raw: str) -> None:
         if episodes:  # lời Mira tự nói cũng là một phần buổi trò chuyện (lời nhắc ẩn thì không)
-            episodes.record("assistant", parse_complete(raw).text, datetime.now())
+            episodes.record("assistant", parse_complete(strip_ja(raw)).text, datetime.now())
 
+    speak = can_speak(req.voice, tts)
+    ja = speaks_ja(speak, tts)
     return reply_stream(
-        history=trim_history([*req.messages, note]), system=build_system(now, memory, episodes),
-        llm=llm, tts=tts, speak=req.voice and tts is not None, turn_log=turn_log, kind=req.kind, style=style,
-        after_text=after_reply,
+        history=trim_history([*req.messages, note]), system=build_system(now, memory, episodes, speak_ja=ja),
+        llm=llm, tts=tts, speak=speak, turn_log=turn_log, kind=req.kind, style=style,
+        after_text=after_reply, ja=ja,
     )
 
 

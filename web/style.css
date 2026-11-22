@@ -36,6 +36,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: #eee; }
 /* 4 nút trong cột 380px: không ngắt chữ giữa nút, thiếu chỗ thì cả nút xuống hàng */
 .header-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 .header-actions button { white-space: nowrap; font-size: 13px; padding: 4px 8px; }
+.voice-credit { align-self: center; white-space: nowrap; font-size: 11px; color: var(--muted); }
 
 .memory-dialog { width: min(520px, 92vw); max-height: 80vh; border: 1px solid #3a3550; border-radius: 12px;
   background: var(--panel); color: #eee; padding: 16px; }

@@ -4,7 +4,7 @@
  */
 export class AudioPlayer {
   /**
-   * @param {{onLevel: (level: number | null) => void, onSegmentStart: (meta: {text: string, emotion: string | null}) => void}} handlers
+   * @param {{onLevel: (level: number | null) => void, onSegmentStart: (meta: {text: string, emotion: string | null, vowels?: string}) => void}} handlers
    *   onLevel nhận âm lượng 0..1 mỗi khung hình khi đang phát, và null khi không còn gì để phát.
    */
   constructor({ onLevel, onSegmentStart }) {
@@ -40,7 +40,7 @@ export class AudioPlayer {
     return this.ctx?.state === "running";
   }
 
-  /** @param {{part: number, rate: number, pcm: string, text?: string, emotion?: string | null, speed?: number}} chunk */
+  /** @param {{part: number, rate: number, pcm: string, text?: string, emotion?: string | null, speed?: number, vowels?: string}} chunk */
   enqueue(chunk) {
     this.unlock();
     const bytes = Uint8Array.from(atob(chunk.pcm), (c) => c.charCodeAt(0));
@@ -50,7 +50,7 @@ export class AudioPlayer {
     for (let i = 0; i < pcm.length; i++) data[i] = pcm[i] / 32768;
     // Mảnh đầu của mỗi đoạn mang chữ + cảm xúc + tốc độ: cả đoạn phát cùng tốc độ (vui nhanh/cao hơn chút, buồn chậm hơn)
     if (chunk.part === 0) this.speed = chunk.speed ?? 1;
-    this.schedule(buffer, chunk.part === 0 ? { text: chunk.text, emotion: chunk.emotion ?? null } : null);
+    this.schedule(buffer, chunk.part === 0 ? { text: chunk.text, emotion: chunk.emotion ?? null, vowels: chunk.vowels } : null);
   }
 
   schedule(buffer, meta) {

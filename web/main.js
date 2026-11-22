@@ -13,6 +13,8 @@ const VOICE_KEY = "waifu-voice";
 const HANDSFREE_KEY = "waifu-handsfree";
 // Bỏ tag khi hiển thị lại lịch sử cũ (lịch sử lưu bản gốc còn tag)
 const TAG_RE = /\[[a-zA-Z_]{1,16}\][ \t]*/g; // cùng cách bỏ dấu cách với app/emotion_tags.py
+// Bản tiếng Nhật chỉ để đọc (spec 011): bỏ thẻ <ja>…</ja> và chữ Nhật lạc khi hiện lại lịch sử, như app/ja_tags.py
+const JA_RE = /<(ja|jp)>[\s\S]*?(<\/(ja|jp)>|$)|<\/?(ja|jp)>|[\u3040-\u30ff\u3400-\u9fff\uff01-\uff5e\u3000-\u303f]+/gi;
 
 const $ = (id) => document.getElementById(id);
 const stage = $("stage");
@@ -27,9 +29,9 @@ const avatar = new Avatar(stage);
 const player = new AudioPlayer({
   onLevel: (level) => avatar.setMouthLevel(level),
   // Có giọng thì đổi mặt đúng lúc câu đó được đọc, không phải lúc chữ hiện ra
-  onSegmentStart: ({ text, emotion }) => {
+  onSegmentStart: ({ text, emotion, vowels }) => {
     if (emotion) avatar.setEmotion(emotion);
-    avatar.setSpeechText(text); // nhép miệng theo nguyên âm của đoạn đang đọc
+    avatar.setSpeechText(text, vowels); // nhép miệng theo nguyên âm của đoạn đang đọc
   },
 });
 
@@ -114,7 +116,7 @@ function addBubble(role, text) {
 }
 
 for (const turn of history) {
-  addBubble(turn.role, turn.role === "assistant" ? turn.content.replace(TAG_RE, "").trim() : turn.content);
+  addBubble(turn.role, turn.role === "assistant" ? turn.content.replace(JA_RE, "").replace(/\(\s*\)/g, "").replace(TAG_RE, "").replace(/[ \t]{2,}/g, " ").trim() : turn.content);
 }
 
 $("clear-btn").addEventListener("click", () => {
@@ -284,6 +286,9 @@ async function checkBrain() {
   if (!health) return addBubble("error", "Không gọi được server. Server còn chạy không?");
   if (!health.ok) addBubble("error", health.problem);
   if (voiceOn && health.voice && !health.voice.ok) addBubble("error", health.voice.problem);
+  // Điều khoản giọng VOICEVOX bắt buộc ghi nguồn ở chỗ dễ thấy
+  $("voice-credit").textContent = health.voice?.credit ?? "";
+  $("voice-credit").hidden = !health.voice?.credit;
   if (health.stt && !health.stt.ok) {
     micBtn.disabled = true;
     handsFreeBtn.disabled = true;
