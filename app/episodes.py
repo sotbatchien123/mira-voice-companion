@@ -27,6 +27,7 @@ EPISODE_PROMPT_CHARS = 700
 MAX_SESSION_CHARS = 6000  # phần đưa model tóm tắt: buổi quá dài thì giữ đoạn cuối
 MAX_SUMMARY_CHARS = 400
 MIN_USER_CHARS = 30  # buổi chỉ có "chào em" thì không có gì để tóm tắt
+MAX_SUMMARY_TRIES = 3  # model trả sai dạng chừng này lần liền thì bỏ buổi, để buổi chờ không phình mãi
 
 
 @dataclass
@@ -114,6 +115,7 @@ class EpisodeStore:
         self.last_at: str | None = None  # iso, lượt gần nhất của buổi đang nói
         self.turns: list[tuple[str, str]] = []
         self._summarizing = False
+        self._failures = 0  # số lần tóm tắt hỏng liền nhau của buổi đang chờ
         self._generation = 0  # tăng mỗi lần clear(): bản tóm tắt làm dở từ trước lúc xóa thì bỏ đi
         self._timer: asyncio.Task | None = None
         try:
@@ -177,11 +179,15 @@ class EpisodeStore:
         turns, started = pending.turns, pending.started
         try:
             user_chars = sum(len(t) for r, t in turns if r == "user")
-            summary = ""
+            summary, error = "", None
             if user_chars >= MIN_USER_CHARS:
                 summary = parse_summary(await llm.complete(summary_messages(turns), json_mode=True, max_tokens=300))
                 if not summary:  # model trả sai dạng: giữ buổi lại, lần im sau thử tóm tắt lại
-                    return {"summarized": False, "turns": len(turns), "error": "bad_summary"}
+                    self._failures += 1
+                    if self._failures < MAX_SUMMARY_TRIES:
+                        return {"summarized": False, "turns": len(turns), "error": "bad_summary"}
+                    error = "gave_up"
+            self._failures = 0
             with self._lock:
                 if self._generation != pending.generation:
                     # Anh đã bấm "Quên hết" trong lúc chờ model: không ghi lại buổi đã xóa, không đụng lượt nói sau đó
@@ -196,7 +202,7 @@ class EpisodeStore:
                 if not self.turns:
                     self.last_at = None
                 self._write()
-            return {"summarized": bool(summary), "turns": len(turns)}
+            return {"summarized": bool(summary), "turns": len(turns), **({"error": error} if error else {})}
         finally:
             with self._lock:
                 self._summarizing = False

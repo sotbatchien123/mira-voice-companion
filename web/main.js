@@ -169,7 +169,7 @@ async function runMiraTurn({ url = "/api/chat", extra = {}, speak, pending = tru
         onVoiceError: (message) => {
           voiceFailed = true;
           avatar.setTalking(true);
-          addBubble("error", message);
+          if (message) addBubble("error", message);
         },
         onTextDone: saveReply,
       },

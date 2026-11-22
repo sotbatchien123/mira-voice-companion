@@ -164,3 +164,4 @@ def test_voicevox_tat_thi_chi_co_chu():
     evs = events(post(llm, tts).text)
     assert "<ja>" not in llm.calls[0]["system"]  # không bắt model viết tiếng Nhật vô ích
     assert not [e for e in evs if e["type"] in ("audio", "tts_error")]
+    assert evs[0] == {"type": "voice_off"}  # trình duyệt biết lượt này không có giọng: miệng giả lập theo chữ

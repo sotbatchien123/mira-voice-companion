@@ -274,3 +274,16 @@ def test_api_chat_loi_thi_khong_ghi_luot_cua_anh(store, tmp_path):
     use(BrokenLLM(), store, Presence(tmp_path / "presence.json"))
     TestClient(app).post("/api/chat", json={"messages": [{"role": "user", "content": "Anh về rồi nè em"}]})
     assert store.turns == []
+
+
+def test_tom_tat_hong_nhieu_lan_thi_bo_buoi(store):
+    """Model trả sai dạng mãi thì buổi chờ tóm tắt không được phình mãi: hỏng đủ số lần thì bỏ, không tạo bản tóm tắt."""
+    chat_session(store)
+
+    class WrongKeyLLM(FakeLLM):
+        async def complete(self, messages, *, json_mode=False, max_tokens=256):
+            return '{"summary": "sai khóa"}'
+
+    results = [asyncio.run(store.close(WrongKeyLLM())) for _ in range(3)]
+    assert [r.get("error") for r in results] == ["bad_summary", "bad_summary", "gave_up"]
+    assert store.turns == [] and store.episodes == []

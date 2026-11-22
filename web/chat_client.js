@@ -5,7 +5,7 @@
  *   onText: (t: string) => void,
  *   onEmotion: (e: string) => void,
  *   onAudio?: (a: {seq: number, part: number, rate: number, pcm: string, text?: string, emotion?: string | null}) => void,
- *   onVoiceError?: (message: string) => void,
+ *   onVoiceError?: (message: string | null) => void,
  *   onTextDone?: (raw: string) => void,
  * }} handlers
  * @param {{voice?: boolean, signal?: AbortSignal, url?: string, extra?: object}} [options]
@@ -47,6 +47,7 @@ export async function streamChat(
       else if (event.type === "emotion") onEmotion(event.emotion);
       else if (event.type === "audio") onAudio?.(event);
       else if (event.type === "tts_error") onVoiceError?.(event.message);
+      else if (event.type === "voice_off") onVoiceError?.(null); // engine giọng đang tắt: như lỗi giọng nhưng không báo
       else if (event.type === "text_done") onTextDone?.(event.raw);
       else if (event.type === "error") throw new Error(event.message);
       else if (event.type === "done") return event.raw;

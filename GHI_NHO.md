@@ -14,7 +14,7 @@
   - Frontend phát PCM theo mảnh. Miệng tự cân theo đỉnh âm lượng. Nút "Giọng: bật/tắt". Log `logs/turns.jsonl`.
   - Đo thật: audio đầu 0,53–0,61s, chữ đầu 0,13–0,15s, 0 lỗ hổng khi phát, VRAM không đổi.
   - Miệng nhép trên VRM thật đã kiểm chứng (T013). Người dùng chưa nghe bản chạy trong app.
-- `uv run pytest` hiện là **208/208 pass** (2026-11-22, nhánh `feat/011-japanese-voice`).
+- `uv run pytest` hiện là **210/210 pass** (2026-11-22, nhánh `feat/011-japanese-voice`).
 - **Nghe giọng nói (spec 003):** mặc định **Zipformer-30M** (sherpa-onnx, CPU, model đặt ngoài repo, trỏ bằng `ZIPFORMER_DIR`; máy dev dùng chung bản của VoiceDeck), có Silero VAD chặn im lặng; Whisper `small` làm dự phòng. Nút "Giữ để nói" (hoặc giữ Space khi ô nhập trống), "Rảnh tay" (VAD theo VoiceDeck), người dùng nói thì Mira im. Đo: FLEURS người thật WER 8,8% / 0,18s. **Chưa thử lại mic thật sau khi đổi.**
 - **Trí nhớ dài hạn (spec 004):** `app/memory.py`, `data/memory.json` (gitignored). Model chỉ đề xuất điều mới + loại; code tự thay theo loại (tên, tuổi, nghề, nơi ở, cách gọi) và ghi ngày nói. System prompt có ngày giờ + điều đã nhớ. Lịch sử cắt theo 5000 ký tự. Nút "Trí nhớ" xem/xóa. Kiểm chứng thật đạt hết (`scripts/verify_memory.py`).
 - **Mira chủ động (spec 006):** `app/presence.py`, `POST /api/proactive {kind: greet|checkin}` (204 nếu chưa đến lúc). Chào khi mở trang nếu vắng ≥ 30 phút; hỏi thăm 1 lần khi im ≥ 10 phút (trang hiện, không bận). Mốc thời gian trong trí nhớ được code đổi thành ngày + nhãn đã diễn ra/hôm nay/sắp tới.
@@ -99,6 +99,17 @@ Nguồn: trang chủ và `/privacy` (bản sửa 2026-09-07). Họ không công 
 - Định tuyến nhiều nhà cung cấp cloud (trái local-first).
 
 ## Nhật ký phiên
+
+### 2026-11-22 (lần 36): làm nốt việc còn dở của lần 35 (nhánh `fix/viec-con-do`)
+- `logs/turns.jsonl` quá 5MB thì đổi sang `turns.1.jsonl` (chỉ giữ một file cũ) – `app/turn_log.py`.
+- Tóm tắt buổi trò chuyện hỏng 3 lần liền thì bỏ buổi đó (log `error: gave_up`), không giữ lượt mãi – `app/episodes.py`.
+- VOICEVOX tắt: server gửi sự kiện `voice_off` đầu luồng; trình duyệt nhép miệng theo chữ như khi lỗi giọng nhưng không
+  hiện bong bóng lỗi (`web/chat_client.js`, `web/main.js`). Thử thật: VOICEVOX tắt -> chỉ chữ, không `<ja>`; bật lại
+  -> lượt đầu vẫn chỉ chữ (kiểm ở nền), từ lượt sau có giọng.
+- Đo lại lúc máy rảnh (tab avatar 3D đã đóng, không chạy gì song song): **giọng đầu trung vị 1,64s, chữ đầu 144ms,
+  câu bị im 6/45 (13%), 15/20 câu trả lời đủ giọng**, 0 lần lọt chữ Nhật. Lần đo 4,1s trước đó là do máy bận.
+- Còn lại: người dùng nghe thử; hẹn giờ tóm tắt sau 30 phút im vẫn chưa kiểm thật; các việc cần người dùng tự làm ở
+  "Việc tiếp theo".
 
 ### 2026-11-22 (lần 35): review toàn nhánh spec 011 + rà soát cả project, sửa lỗi
 - Review toàn nhánh do Antigravity (Claude Opus Medium) làm. Headless `agy` chặn mọi lệnh shell kể cả khi có

@@ -13,14 +13,20 @@ from pathlib import Path
 log = logging.getLogger("waifu")
 
 
+MAX_LOG_BYTES = 5_000_000  # ~25 nghìn lượt; quá thì đổi sang turns.1.jsonl (chỉ giữ một file cũ)
+
+
 class TurnLog:
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, max_bytes: int = MAX_LOG_BYTES) -> None:
         self.path = path
+        self.max_bytes = max_bytes
 
     def write(self, record: dict) -> None:
         line = {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"), **record}
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
+            if self.path.exists() and self.path.stat().st_size > self.max_bytes:
+                self.path.replace(self.path.with_name(f"{self.path.stem}.1{self.path.suffix}"))
             with self.path.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(line, ensure_ascii=False) + "\n")
         except OSError:

@@ -470,6 +470,7 @@ def reply_stream(
     after_text: Callable[[str], Awaitable[None]] | None = None,
     style: VoiceStyle | None = None,
     ja: bool = False,
+    voice_off: bool = False,
 ) -> StreamingResponse:
     """SSE cho một lượt Mira nói: emotion/text/audio ... text_done ... rồi {type:"done", raw} hoặc {type:"error"}.
 
@@ -480,6 +481,8 @@ def reply_stream(
 
     async def events() -> AsyncIterator[str]:
         out: asyncio.Queue[str | None] = asyncio.Queue()
+        if voice_off:  # anh bật giọng nhưng engine đang tắt: trình duyệt tự nhép miệng theo chữ, không chờ giọng
+            out.put_nowait(sse({"type": "voice_off"}))
         speaker = Speaker(tts, out, style, ja=ja) if speak else None
         st = {"raw": [], "stop": "", "error": None, "first_text_at": None}
         start = time.perf_counter()
@@ -630,7 +633,7 @@ async def chat(
     return reply_stream(
         history=trim_history(req.messages), system=system,
         llm=llm, tts=tts, speak=speak, turn_log=turn_log, kind="chat",
-        after_text=after_reply, style=style, ja=ja,
+        after_text=after_reply, style=style, ja=ja, voice_off=req.voice and tts is not None and not speak,
     )
 
 
@@ -712,7 +715,7 @@ async def proactive(
     return reply_stream(
         history=trim_history([*req.messages, note]), system=build_system(now, memory, episodes, speak_ja=ja),
         llm=llm, tts=tts, speak=speak, turn_log=turn_log, kind=req.kind, style=style,
-        after_text=after_reply, ja=ja,
+        after_text=after_reply, ja=ja, voice_off=req.voice and tts is not None and not speak,
     )
 
 
